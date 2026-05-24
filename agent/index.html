@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>My Device Agent</title>
+  <style>
+    :root {
+      --bg: #0a0e17;
+      --bg-card: #1a2235;
+      --text: #f0f4ff;
+      --text-dim: #94a3b8;
+      --accent: #3b82f6;
+      --success: #10b981;
+      --danger: #ef4444;
+      --warning: #f59e0b;
+      --border: rgba(255,255,255,0.06);
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Segoe UI', -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    .agent-header {
+      text-align: center;
+      padding: 20px 0;
+    }
+
+    .agent-header .logo {
+      font-size: 48px;
+      margin-bottom: 8px;
+    }
+
+    .agent-header h1 {
+      font-size: 22px;
+      margin-bottom: 4px;
+    }
+
+    .agent-header p {
+      color: var(--text-dim);
+      font-size: 14px;
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-size: 14px;
+      font-weight: 500;
+      margin: 16px 0;
+    }
+
+    .status-badge.connected {
+      background: rgba(16, 185, 129, 0.15);
+      color: var(--success);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+
+    .status-badge.disconnected {
+      background: rgba(239, 68, 68, 0.15);
+      color: var(--danger);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+    }
+
+    .status-badge.connecting {
+      background: rgba(245, 158, 11, 0.15);
+      color: var(--warning);
+      border: 1px solid rgba(245, 158, 11, 0.3);
+    }
+
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 12px;
+    }
+
+    .card h3 {
+      font-size: 14px;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .setup-form {
+      margin: 20px 0;
+    }
+
+    .setup-form input {
+      width: 100%;
+      padding: 12px 16px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 16px;
+      font-family: inherit;
+      margin-bottom: 12px;
+    }
+
+    .setup-form input:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+
+    .btn {
+      width: 100%;
+      padding: 14px;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: inherit;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: white;
+    }
+
+    .feature-list {
+      list-style: none;
+    }
+
+    .feature-list li {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 14px;
+    }
+
+    .feature-list li:last-child {
+      border-bottom: none;
+    }
+
+    .feature-status {
+      margin-left: auto;
+      font-size: 12px;
+      padding: 3px 8px;
+      border-radius: 10px;
+    }
+
+    .feature-status.active {
+      background: rgba(16, 185, 129, 0.15);
+      color: var(--success);
+    }
+
+    .feature-status.inactive {
+      background: rgba(100, 116, 139, 0.15);
+      color: var(--text-dim);
+    }
+
+    .log-area {
+      background: rgba(0,0,0,0.3);
+      border-radius: 8px;
+      padding: 12px;
+      max-height: 200px;
+      overflow-y: auto;
+      font-family: monospace;
+      font-size: 12px;
+      color: var(--text-dim);
+    }
+
+    .log-area .log-entry {
+      padding: 2px 0;
+    }
+
+    .log-area .log-entry.info { color: var(--accent); }
+    .log-area .log-entry.success { color: var(--success); }
+    .log-area .log-entry.error { color: var(--danger); }
+
+    /* Emergency overlay */
+    .emergency-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(239, 68, 68, 0.95);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      opacity: 0;
+      visibility: hidden;
+      transition: all 0.3s;
+    }
+
+    .emergency-overlay.active {
+      opacity: 1;
+      visibility: visible;
+    }
+
+    .emergency-overlay h2 {
+      font-size: 28px;
+      margin-bottom: 16px;
+    }
+
+    .emergency-overlay p {
+      font-size: 18px;
+      text-align: center;
+      max-width: 300px;
+    }
+
+    .emergency-overlay .close-btn {
+      margin-top: 24px;
+      padding: 12px 32px;
+      background: white;
+      color: var(--danger);
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    /* Hidden video for camera */
+    #hiddenVideo {
+      position: fixed;
+      top: -9999px;
+      left: -9999px;
+      width: 640px;
+      height: 480px;
+    }
+
+    #hiddenCanvas {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Setup Screen -->
+  <div id="setupScreen">
+    <div class="agent-header">
+      <div class="logo">📲</div>
+      <h1>My Device Agent</h1>
+      <p>Connect this device to your control panel</p>
+    </div>
+
+    <div class="setup-form">
+      <input type="text" id="deviceName" placeholder="Device name (e.g. My Phone)" autofocus>
+      <button class="btn btn-primary" onclick="connectDevice()">Connect Device</button>
+    </div>
+
+    <div class="card">
+      <h3>ℹ️ What permissions are needed?</h3>
+      <ul class="feature-list">
+        <li><span>📷</span> Camera Access <span class="feature-status inactive">Required</span></li>
+        <li><span>📍</span> Location / GPS <span class="feature-status inactive">Required</span></li>
+        <li><span>📁</span> File Access <span class="feature-status inactive">Required</span></li>
+        <li><span>🔋</span> Battery Info <span class="feature-status inactive">Auto</span></li>
+        <li><span>🌐</span> Network Info <span class="feature-status inactive">Auto</span></li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Connected Screen -->
+  <div id="connectedScreen" style="display:none">
+    <div class="agent-header">
+      <div class="logo">📱</div>
+      <h1 id="connectedName">My Device</h1>
+      <div class="status-badge connected" id="statusBadge">
+        <span>🟢</span> Connected
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>📡 Features Status</h3>
+      <ul class="feature-list">
+        <li><span>📷</span> Camera <span class="feature-status" id="fCamera">Ready</span></li>
+        <li><span>📍</span> GPS <span class="feature-status" id="fGPS">Ready</span></li>
+        <li><span>📁</span> Files <span class="feature-status" id="fFiles">Ready</span></li>
+        <li><span>🔋</span> Battery <span class="feature-status active" id="fBattery">Active</span></li>
+        <li><span>🌐</span> Network <span class="feature-status active" id="fNetwork">Active</span></li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h3>📋 Activity Log</h3>
+      <div class="log-area" id="logArea"></div>
+    </div>
+
+    <div class="card" style="text-align:center;color:var(--text-dim);font-size:13px">
+      <p>Keep this page open for the control panel to access this device.</p>
+      <p style="margin-top:8px">Device ID: <strong id="displayDeviceId">--</strong></p>
+    </div>
+  </div>
+
+  <!-- Emergency Overlay -->
+  <div class="emergency-overlay" id="emergencyOverlay">
+    <h2 id="emergencyTitle">🚨 EMERGENCY</h2>
+    <p id="emergencyText">This device has been locked remotely.</p>
+    <button class="close-btn" onclick="closeEmergency()">Dismiss</button>
+  </div>
+
+  <!-- Hidden elements for camera -->
+  <video id="hiddenVideo" autoplay playsinline></video>
+  <canvas id="hiddenCanvas"></canvas>
+
+  <!-- Audio for alarm -->
+  <audio id="alarmAudio" loop>
+    <source src="data:audio/wav;base64,UklGRiQDAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQADAABkAGQAZABkAGQAZABkAGQA" type="audio/wav">
+  </audio>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/agent/agent.js"></script>
+</body>
+</html>

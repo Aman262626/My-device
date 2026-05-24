@@ -1,0 +1,20 @@
+{
+  "name": "my-device-control-panel",
+  "version": "1.0.0",
+  "description": "Remote Device Control Panel - Access camera, GPS, files and more from anywhere",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node server/index.js"
+  },
+  "keywords": ["device", "remote", "control", "panel", "camera", "gps", "files"],
+  "author": "Aman262626",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "socket.io": "^4.7.4",
+    "multer": "^1.4.5-lts.1",
+    "uuid": "^9.0.0",
+    "cors": "^2.8.5"
+  }
+}
