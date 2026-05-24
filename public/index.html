@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>My Device - Control Panel</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📱</text></svg>">
+</head>
+<body>
+
+  <!-- Mobile Menu Toggle -->
+  <button class="menu-toggle" onclick="toggleSidebar()">☰</button>
+
+  <div class="app-container">
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <div class="sidebar-logo">📱</div>
+        <div class="sidebar-title">
+          <h1>My Device</h1>
+          <p>Control Panel</p>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav">
+        <div class="nav-section">
+          <div class="nav-section-title">Main</div>
+          <a class="nav-item active" data-page="dashboard" onclick="navigateTo('dashboard')">
+            <span class="icon">🏠</span>
+            <span>Dashboard</span>
+            <span class="badge" id="deviceCount">0</span>
+          </a>
+          <a class="nav-item" data-page="camera" onclick="navigateTo('camera')">
+            <span class="icon">📷</span>
+            <span>Camera</span>
+          </a>
+          <a class="nav-item" data-page="gps" onclick="navigateTo('gps')">
+            <span class="icon">📍</span>
+            <span>GPS Location</span>
+          </a>
+          <a class="nav-item" data-page="files" onclick="navigateTo('files')">
+            <span class="icon">📁</span>
+            <span>File Manager</span>
+          </a>
+        </div>
+
+        <div class="nav-section">
+          <div class="nav-section-title">Tools</div>
+          <a class="nav-item" data-page="info" onclick="navigateTo('info')">
+            <span class="icon">ℹ️</span>
+            <span>Device Info</span>
+          </a>
+          <a class="nav-item" data-page="emergency" onclick="navigateTo('emergency')">
+            <span class="icon">🚨</span>
+            <span>Emergency</span>
+          </a>
+          <a class="nav-item" data-page="connect" onclick="navigateTo('connect')">
+            <span class="icon">🔗</span>
+            <span>Connect Device</span>
+          </a>
+        </div>
+      </nav>
+
+      <div class="sidebar-footer">
+        <a class="agent-link" href="/agent" target="_blank">
+          <span>📲</span>
+          <span>Open Agent on Device</span>
+        </a>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+
+      <!-- ============ DASHBOARD ============ -->
+      <section class="page-section active" id="page-dashboard">
+        <div class="page-header">
+          <div>
+            <h2>Dashboard</h2>
+            <p class="subtitle">Overview of all your connected devices</p>
+          </div>
+          <button class="btn btn-primary" onclick="navigateTo('connect')">
+            <span>+</span> Add Device
+          </button>
+        </div>
+
+        <!-- Stats -->
+        <div class="grid-4" id="statsGrid">
+          <div class="stat-card">
+            <div class="stat-icon blue">📱</div>
+            <div class="stat-info">
+              <h4 id="totalDevices">0</h4>
+              <p>Total Devices</p>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon green">🟢</div>
+            <div class="stat-info">
+              <h4 id="onlineDevices">0</h4>
+              <p>Online Now</p>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon yellow">📡</div>
+            <div class="stat-info">
+              <h4 id="activeFeatures">0</h4>
+              <p>Active Features</p>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon red">🔋</div>
+            <div class="stat-info">
+              <h4 id="avgBattery">--</h4>
+              <p>Avg Battery</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Devices Grid -->
+        <div style="margin-top: 24px;">
+          <h3 style="font-size: 18px; margin-bottom: 16px;">Connected Devices</h3>
+          <div class="grid-3" id="devicesGrid">
+            <div class="empty-state" id="noDevices">
+              <div class="icon">📱</div>
+              <h3>No Devices Connected</h3>
+              <p>Open the agent page on your device to connect it to the control panel</p>
+              <button class="btn btn-primary" onclick="navigateTo('connect')" style="margin-top:12px">Connect a Device</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ CAMERA ============ -->
+      <section class="page-section" id="page-camera">
+        <div class="page-header">
+          <div>
+            <h2>Camera Access</h2>
+            <p class="subtitle">View live camera feed from your devices</p>
+          </div>
+          <select class="select-device" id="cameraDeviceSelect" onchange="onCameraDeviceChange()">
+            <option value="">Select a device...</option>
+          </select>
+        </div>
+
+        <div class="card">
+          <div class="camera-container" id="cameraContainer">
+            <div class="camera-placeholder" id="cameraPlaceholder">
+              <div class="icon">📷</div>
+              <p>Select a device and start the camera</p>
+            </div>
+            <img id="cameraFeed" style="display:none;" alt="Camera Feed">
+          </div>
+          <div class="camera-controls">
+            <button class="btn btn-primary" id="btnStartCamera" onclick="startCamera()">
+              <span>▶</span> Start Camera
+            </button>
+            <button class="btn btn-outline" onclick="switchCamera()">
+              <span>🔄</span> Switch Camera
+            </button>
+            <button class="btn btn-outline" onclick="capturePhoto()">
+              <span>📸</span> Capture Photo
+            </button>
+            <button class="btn btn-danger" onclick="stopCamera()">
+              <span>⏹</span> Stop
+            </button>
+          </div>
+        </div>
+
+        <div style="margin-top:20px">
+          <h3 style="font-size:16px;margin-bottom:12px">Captured Photos</h3>
+          <div class="captured-photos" id="capturedPhotos">
+            <div class="empty-state" style="padding:20px">
+              <p>No photos captured yet</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ GPS LOCATION ============ -->
+      <section class="page-section" id="page-gps">
+        <div class="page-header">
+          <div>
+            <h2>GPS Location</h2>
+            <p class="subtitle">Track real-time location of your devices</p>
+          </div>
+          <select class="select-device" id="gpsDeviceSelect" onchange="onGpsDeviceChange()">
+            <option value="">Select a device...</option>
+          </select>
+        </div>
+
+        <div class="card">
+          <div class="map-container" id="mapContainer">
+            <div class="empty-state" style="padding:60px 20px">
+              <div class="icon">📍</div>
+              <h3>No Location Data</h3>
+              <p>Select a device and start GPS tracking</p>
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top:16px;display:flex;gap:12px;justify-content:center">
+          <button class="btn btn-primary" onclick="startGPS()">
+            <span>📍</span> Start Tracking
+          </button>
+          <button class="btn btn-danger" onclick="stopGPS()">
+            <span>⏹</span> Stop
+          </button>
+        </div>
+
+        <div class="location-info" id="locationInfo" style="margin-top:20px">
+          <div class="location-stat">
+            <div class="value" id="gpsLat">--</div>
+            <div class="label">Latitude</div>
+          </div>
+          <div class="location-stat">
+            <div class="value" id="gpsLng">--</div>
+            <div class="label">Longitude</div>
+          </div>
+          <div class="location-stat">
+            <div class="value" id="gpsAccuracy">--</div>
+            <div class="label">Accuracy (m)</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ FILE MANAGER ============ -->
+      <section class="page-section" id="page-files">
+        <div class="page-header">
+          <div>
+            <h2>File Manager</h2>
+            <p class="subtitle">Browse and download files from your devices</p>
+          </div>
+          <select class="select-device" id="filesDeviceSelect" onchange="onFilesDeviceChange()">
+            <option value="">Select a device...</option>
+          </select>
+        </div>
+
+        <div class="file-breadcrumb" id="fileBreadcrumb">
+          <span onclick="browseFiles('/')">🏠 Root</span>
+        </div>
+
+        <div class="file-list" id="fileList">
+          <div class="empty-state" style="padding:40px 20px">
+            <div class="icon">📁</div>
+            <h3>No Files</h3>
+            <p>Select a device to browse its files</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ DEVICE INFO ============ -->
+      <section class="page-section" id="page-info">
+        <div class="page-header">
+          <div>
+            <h2>Device Information</h2>
+            <p class="subtitle">Detailed information about your devices</p>
+          </div>
+          <select class="select-device" id="infoDeviceSelect" onchange="onInfoDeviceChange()">
+            <option value="">Select a device...</option>
+          </select>
+        </div>
+
+        <div class="info-grid" id="deviceInfoGrid">
+          <div class="info-card">
+            <h3>📱 General</h3>
+            <div class="info-row"><span class="label">Name</span><span class="value" id="infoName">--</span></div>
+            <div class="info-row"><span class="label">Type</span><span class="value" id="infoType">--</span></div>
+            <div class="info-row"><span class="label">Platform</span><span class="value" id="infoPlatform">--</span></div>
+            <div class="info-row"><span class="label">Browser</span><span class="value" id="infoBrowser">--</span></div>
+            <div class="info-row"><span class="label">Screen</span><span class="value" id="infoScreen">--</span></div>
+          </div>
+          <div class="info-card">
+            <h3>🔋 Battery</h3>
+            <div class="info-row"><span class="label">Level</span><span class="value" id="infoBatteryLevel">--</span></div>
+            <div class="info-row"><span class="label">Charging</span><span class="value" id="infoBatteryCharging">--</span></div>
+            <div class="progress-bar"><div class="fill green" id="batteryBar" style="width:0%"></div></div>
+          </div>
+          <div class="info-card">
+            <h3>🌐 Network</h3>
+            <div class="info-row"><span class="label">Type</span><span class="value" id="infoNetType">--</span></div>
+            <div class="info-row"><span class="label">Downlink</span><span class="value" id="infoNetDown">--</span></div>
+            <div class="info-row"><span class="label">RTT</span><span class="value" id="infoNetRTT">--</span></div>
+            <div class="info-row"><span class="label">Online</span><span class="value" id="infoNetOnline">--</span></div>
+          </div>
+          <div class="info-card">
+            <h3>💾 Storage</h3>
+            <div class="info-row"><span class="label">Used</span><span class="value" id="infoStorageUsed">--</span></div>
+            <div class="info-row"><span class="label">Total</span><span class="value" id="infoStorageTotal">--</span></div>
+            <div class="progress-bar"><div class="fill blue" id="storageBar" style="width:0%"></div></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ EMERGENCY ============ -->
+      <section class="page-section" id="page-emergency">
+        <div class="page-header">
+          <div>
+            <h2>Emergency Access</h2>
+            <p class="subtitle">Quick emergency actions for your devices</p>
+          </div>
+          <select class="select-device" id="emergencyDeviceSelect">
+            <option value="">Select a device...</option>
+          </select>
+        </div>
+
+        <div class="emergency-grid">
+          <div class="emergency-card alarm" onclick="triggerAlarm()">
+            <div class="em-icon">🔔</div>
+            <h3>Sound Alarm</h3>
+            <p>Play a loud alarm sound on the device to locate it</p>
+          </div>
+          <div class="emergency-card lock" onclick="triggerLock()">
+            <div class="em-icon">🔒</div>
+            <h3>Lock Device</h3>
+            <p>Lock the device screen remotely with a security message</p>
+          </div>
+          <div class="emergency-card locate" onclick="navigateTo('gps')">
+            <div class="em-icon">🗺️</div>
+            <h3>Find Location</h3>
+            <p>Track the device's current GPS location on the map</p>
+          </div>
+          <div class="emergency-card message" onclick="showMessageModal()">
+            <div class="em-icon">💬</div>
+            <h3>Send Message</h3>
+            <p>Display an emergency message on the device screen</p>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top:24px;padding:24px">
+          <h3 style="margin-bottom:16px">Quick Camera Snapshot</h3>
+          <p style="color:var(--text-secondary);font-size:14px;margin-bottom:16px">Take a quick snapshot from the device camera to see surroundings</p>
+          <button class="btn btn-primary" onclick="emergencyCapture()">
+            <span>📸</span> Take Snapshot
+          </button>
+          <div id="emergencySnapshot" style="margin-top:16px"></div>
+        </div>
+      </section>
+
+      <!-- ============ CONNECT DEVICE ============ -->
+      <section class="page-section" id="page-connect">
+        <div class="page-header">
+          <div>
+            <h2>Connect Device</h2>
+            <p class="subtitle">Add a new device to your control panel</p>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <h3 style="margin-bottom:16px">How to Connect</h3>
+            <div style="color:var(--text-secondary);font-size:14px;line-height:1.8">
+              <p><strong>Step 1:</strong> Open the agent URL on your mobile device</p>
+              <p><strong>Step 2:</strong> Allow camera, location, and file access permissions</p>
+              <p><strong>Step 3:</strong> Give your device a name</p>
+              <p><strong>Step 4:</strong> Your device will appear in the dashboard</p>
+            </div>
+
+            <div class="connection-url" style="margin-top:20px">
+              <span id="agentUrl">Loading...</span>
+              <span class="copy-btn" onclick="copyAgentUrl()">📋</span>
+            </div>
+          </div>
+
+          <div class="card" style="text-align:center">
+            <h3 style="margin-bottom:16px">Scan QR Code</h3>
+            <p style="color:var(--text-secondary);font-size:14px;margin-bottom:16px">
+              Scan this code with your device's camera
+            </p>
+            <div class="qr-section">
+              <div id="qrCanvas"></div>
+            </div>
+            <p style="font-size:12px;color:var(--text-muted);margin-top:12px">
+              The device will automatically connect to this server
+            </p>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top:20px">
+          <h3 style="margin-bottom:12px">Connected Devices</h3>
+          <div id="connectDevicesList"></div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- Message Modal -->
+  <div class="modal-overlay" id="messageModal">
+    <div class="modal">
+      <h3>Send Emergency Message</h3>
+      <textarea id="emergencyMessage" rows="4" placeholder="Enter message to display on the device..."></textarea>
+      <div class="modal-actions">
+        <button class="btn btn-outline" onclick="closeMessageModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="sendEmergencyMessage()">Send Message</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Lightbox -->
+  <div class="lightbox" id="lightbox" onclick="closeLightbox()">
+    <img id="lightboxImg" src="" alt="Photo">
+  </div>
+
+  <!-- Toast Container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- Scripts -->
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/qrcode.min.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>
