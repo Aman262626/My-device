@@ -80,16 +80,34 @@ My-device/
 
 ## Deployment
 
-### Deploy on Vercel / Railway / Render
+### Deploy on Render (Recommended — Full Real-Time Support)
 
-1. Push to GitHub
-2. Connect repo to your preferred platform
-3. Set start command: `npm start`
-4. Deploy!
+Render supports persistent Node.js servers, so **all features work** including live camera, GPS tracking, and real-time device control.
+
+1. Go to [render.com](https://render.com) → **New** → **Web Service**
+2. Connect your GitHub repo (`Aman262626/My-device`)
+3. Render auto-detects `render.yaml` config
+4. Click **Create Web Service** → Deploy!
+5. Your app URL: `https://my-device-control-panel.onrender.com`
+6. Open `https://<your-render-url>/agent` on your phone to connect it
+
+### Deploy on Vercel (UI Only)
+
+Vercel is serverless, so the **Dashboard UI and Agent page** work but real-time features (camera streaming, live GPS) are limited.
+
+1. Go to [vercel.com](https://vercel.com) → **New Project**
+2. Import `Aman262626/My-device` repo
+3. Vercel auto-detects `vercel.json` config
+4. Click **Deploy** — done!
 
 ### Local Network
 
 Run the server on any computer in your network. Devices on the same WiFi can connect using the computer's local IP address.
+
+```bash
+npm start
+# Open http://<your-ip>:3000/agent on your phone
+```
 
 ## Security Note
 
