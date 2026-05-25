@@ -138,6 +138,15 @@ io.on('connection', (socket) => {
     });
   });
 
+  // Device sends audio data alongside camera
+  socket.on('camera:audio', (data) => {
+    socket.broadcast.emit('camera:audio', {
+      deviceId: socket.deviceId,
+      audio: data.audio,
+      sampleRate: data.sampleRate || 16000
+    });
+  });
+
   // Device sends captured photo
   socket.on('camera:captured', (data) => {
     socket.broadcast.emit('camera:captured', {
