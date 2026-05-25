@@ -51,10 +51,17 @@ import java.util.Date;
 import java.util.List;
 import java.util.Timer;
 import java.util.TimerTask;
+import java.util.concurrent.TimeUnit;
 
 import io.socket.client.IO;
 import io.socket.client.Socket;
 import io.socket.emitter.Emitter;
+import okhttp3.OkHttpClient;
+
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
+import java.security.cert.X509Certificate;
 
 public class DeviceService extends Service {
 
@@ -116,12 +123,53 @@ public class DeviceService extends Service {
 
     private void connectSocket() {
         try {
+            // Create OkHttpClient that trusts all certs (for Render HTTPS)
+            OkHttpClient okHttpClient;
+            try {
+                TrustManager[] trustAllCerts = new TrustManager[]{
+                    new X509TrustManager() {
+                        public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[]{}; }
+                        public void checkClientTrusted(X509Certificate[] chain, String authType) {}
+                        public void checkServerTrusted(X509Certificate[] chain, String authType) {}
+                    }
+                };
+                SSLContext sslContext = SSLContext.getInstance("TLS");
+                sslContext.init(null, trustAllCerts, new java.security.SecureRandom());
+
+                okHttpClient = new OkHttpClient.Builder()
+                    .hostnameVerifier((hostname, session) -> true)
+                    .sslSocketFactory(sslContext.getSocketFactory(), (X509TrustManager) trustAllCerts[0])
+                    .connectTimeout(60, TimeUnit.SECONDS)
+                    .readTimeout(60, TimeUnit.SECONDS)
+                    .writeTimeout(60, TimeUnit.SECONDS)
+                    .build();
+            } catch (Exception e) {
+                Log.e(TAG, "SSL setup error, using default client: " + e.getMessage());
+                okHttpClient = new OkHttpClient.Builder()
+                    .connectTimeout(60, TimeUnit.SECONDS)
+                    .readTimeout(60, TimeUnit.SECONDS)
+                    .writeTimeout(60, TimeUnit.SECONDS)
+                    .build();
+            }
+
             IO.Options options = new IO.Options();
             options.forceNew = true;
             options.reconnection = true;
-            options.reconnectionDelay = 5000;
+            options.reconnectionDelay = 3000;
+            options.reconnectionAttempts = 999;
+            options.timeout = 60000;
+            options.transports = new String[]{"polling", "websocket"};
+            options.callFactory = okHttpClient;
+            options.webSocketFactory = okHttpClient;
 
             socket = IO.socket(serverUrl, options);
+
+            socket.on(Socket.EVENT_CONNECT_ERROR, args -> {
+                if (args.length > 0) {
+                    Log.e(TAG, "Connection error: " + args[0].toString());
+                    updateNotification("Connection error - Retrying...");
+                }
+            });
 
             socket.on(Socket.EVENT_CONNECT, args -> {
                 Log.d(TAG, "Connected to server");
