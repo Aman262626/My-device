@@ -453,8 +453,16 @@ socket.on('gallery:photos', function(data) {
   if (data.photos && data.photos.length > 0) {
     galleryPhotos = data.photos;
     updateGalleryGrid();
-    document.getElementById('galleryCount').textContent = galleryPhotos.length + ' photos found';
-    showToast(galleryPhotos.length + ' photos found!', 'success');
+    var countText = galleryPhotos.length + ' photos';
+    if (data.partial && data.total) {
+      countText += ' (loading... ' + data.total + ' total)';
+    } else if (data.total) {
+      countText = galleryPhotos.length + ' / ' + data.total + ' photos loaded';
+    }
+    document.getElementById('galleryCount').textContent = countText;
+    if (!data.partial) {
+      showToast(galleryPhotos.length + ' photos found!', 'success');
+    }
   } else if (data.useFilePicker) {
     showToast('Use "Pick from Device" button instead', 'info');
     document.getElementById('galleryCount').textContent = '';
