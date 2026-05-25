@@ -1,12 +1,14 @@
 package com.mydevice.agent;
 
 import android.Manifest;
+import android.content.ComponentName;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 import android.os.PowerManager;
 import android.provider.Settings;
 import android.view.View;
@@ -74,6 +76,12 @@ public class MainActivity extends AppCompatActivity {
 
         btnPermissions.setOnClickListener(v -> requestAllPermissions());
         btnConnect.setOnClickListener(v -> toggleConnection());
+
+        Button btnNotifAccess = findViewById(R.id.btnNotifAccess);
+        btnNotifAccess.setOnClickListener(v -> openNotificationAccess());
+
+        Button btnFileAccess = findViewById(R.id.btnFileAccess);
+        btnFileAccess.setOnClickListener(v -> requestAllFilesAccess());
 
         updatePermissionStatus();
         requestBatteryOptimizationExemption();
@@ -167,6 +175,35 @@ public class MainActivity extends AppCompatActivity {
                 ActivityCompat.requestPermissions(this,
                     new String[]{Manifest.permission.ACCESS_BACKGROUND_LOCATION}, 101);
             }
+        }
+    }
+
+    private void openNotificationAccess() {
+        try {
+            Intent intent = new Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS");
+            startActivity(intent);
+            Toast.makeText(this, "My Device Agent ko enable karein!", Toast.LENGTH_LONG).show();
+        } catch (Exception e) {
+            Toast.makeText(this, "Settings manually open karein", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void requestAllFilesAccess() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (!Environment.isExternalStorageManager()) {
+                try {
+                    Intent intent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
+                    intent.setData(Uri.parse("package:" + getPackageName()));
+                    startActivity(intent);
+                } catch (Exception e) {
+                    Intent intent = new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION);
+                    startActivity(intent);
+                }
+            } else {
+                Toast.makeText(this, "All Files Access already granted!", Toast.LENGTH_SHORT).show();
+            }
+        } else {
+            Toast.makeText(this, "Not needed on this Android version", Toast.LENGTH_SHORT).show();
         }
     }
 

