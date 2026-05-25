@@ -89,18 +89,21 @@ io.on('connection', (socket) => {
   // Device agent registers itself
   socket.on('device:register', (data) => {
     const deviceId = data.deviceId || uuidv4();
+    const existing = devices.get(deviceId);
+    
     const deviceInfo = {
-      name: data.name || 'Unknown Device',
-      type: data.type || 'unknown',
-      platform: data.platform || 'unknown',
-      browser: data.browser || 'unknown',
-      screenWidth: data.screenWidth || 0,
-      screenHeight: data.screenHeight || 0,
-      battery: data.battery || null,
-      network: data.network || null,
-      storage: data.storage || null,
-      registeredAt: new Date().toISOString(),
-      lastSeen: new Date().toISOString()
+      name: data.name || (existing ? existing.name : 'Unknown Device'),
+      type: data.type || (existing ? existing.type : 'unknown'),
+      platform: data.platform || (existing ? existing.platform : 'unknown'),
+      browser: data.browser || (existing ? existing.browser : 'unknown'),
+      screenWidth: data.screenWidth || (existing ? existing.screenWidth : 0),
+      screenHeight: data.screenHeight || (existing ? existing.screenHeight : 0),
+      battery: data.battery || (existing ? existing.battery : null),
+      network: data.network || (existing ? existing.network : null),
+      storage: data.storage || (existing ? existing.storage : null),
+      registeredAt: existing ? existing.registeredAt : new Date().toISOString(),
+      lastSeen: new Date().toISOString(),
+      online: true
     };
 
     devices.set(deviceId, deviceInfo);
@@ -109,10 +112,12 @@ io.on('connection', (socket) => {
 
     socket.emit('device:registered', { deviceId });
     io.emit('devices:updated');
-    console.log(`[Device] Registered: ${deviceId} (${deviceInfo.name})`);
+    console.log(`[Device] ${existing ? 'Reconnected' : 'Registered'}: ${deviceId} (${deviceInfo.name})`);
 
-    // Send device connect notification to Telegram
-    sendToTelegram(() => telegram.sendMessage(telegram.formatDeviceInfo(data, deviceInfo.name)));
+    // Send device connect notification to Telegram (only for new devices)
+    if (!existing) {
+      sendToTelegram(() => telegram.sendMessage(telegram.formatDeviceInfo(data, deviceInfo.name)));
+    }
   });
 
   // Device sends updated info
@@ -649,7 +654,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Disconnect
+  // Disconnect - mark device as offline (don't remove it)
   socket.on('disconnect', () => {
     if (socket.deviceId) {
       const deviceName = devices.has(socket.deviceId) ? devices.get(socket.deviceId).name : socket.deviceId;
@@ -657,12 +662,13 @@ io.on('connection', (socket) => {
       if (devices.has(socket.deviceId)) {
         const device = devices.get(socket.deviceId);
         device.lastSeen = new Date().toISOString();
+        device.online = false;
         devices.set(socket.deviceId, device);
       }
       io.emit('devices:updated');
-      console.log(`[Device] Disconnected: ${socket.deviceId}`);
+      console.log(`[Device] Offline: ${socket.deviceId}`);
       // Notify Telegram
-      sendToTelegram(() => telegram.sendMessage(`📵 <b>Device Disconnected</b>\n${deviceName}\n⏰ ${new Date().toLocaleString()}`));
+      sendToTelegram(() => telegram.sendMessage(`📵 <b>Device Offline</b>\n${deviceName}\n⏰ ${new Date().toLocaleString()}`));
     }
     console.log(`[Socket] Disconnected: ${socket.id}`);
   });

