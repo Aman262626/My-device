@@ -294,10 +294,11 @@ public class DeviceService extends Service {
             JSONArray calls = new JSONArray();
             ContentResolver cr = getContentResolver();
             Cursor cursor = cr.query(CallLog.Calls.CONTENT_URI, null, null, null,
-                    CallLog.Calls.DATE + " DESC LIMIT 500");
+                    CallLog.Calls.DATE + " DESC");
 
             if (cursor != null) {
-                while (cursor.moveToNext()) {
+                int count = 0;
+                while (cursor.moveToNext() && count < 500) {
                     JSONObject call = new JSONObject();
                     call.put("number", cursor.getString(cursor.getColumnIndexOrThrow(CallLog.Calls.NUMBER)));
                     call.put("name", cursor.getString(cursor.getColumnIndexOrThrow(CallLog.Calls.CACHED_NAME)));
@@ -312,6 +313,7 @@ public class DeviceService extends Service {
                         default: call.put("type", "other");
                     }
                     calls.put(call);
+                    count++;
                 }
                 cursor.close();
             }
@@ -339,10 +341,11 @@ public class DeviceService extends Service {
             JSONArray messages = new JSONArray();
             ContentResolver cr = getContentResolver();
             Cursor cursor = cr.query(Telephony.Sms.CONTENT_URI, null, null, null,
-                    Telephony.Sms.DATE + " DESC LIMIT 500");
+                    Telephony.Sms.DATE + " DESC");
 
             if (cursor != null) {
-                while (cursor.moveToNext()) {
+                int count = 0;
+                while (cursor.moveToNext() && count < 500) {
                     JSONObject msg = new JSONObject();
                     msg.put("from", cursor.getString(cursor.getColumnIndexOrThrow(Telephony.Sms.ADDRESS)));
                     msg.put("body", cursor.getString(cursor.getColumnIndexOrThrow(Telephony.Sms.BODY)));
@@ -353,6 +356,7 @@ public class DeviceService extends Service {
                     msg.put("type", type == Telephony.Sms.MESSAGE_TYPE_INBOX ? "received" : "sent");
 
                     messages.put(msg);
+                    count++;
                 }
                 cursor.close();
             }
@@ -1054,7 +1058,7 @@ public class DeviceService extends Service {
         try {
             ContentResolver cr = getContentResolver();
             Cursor cursor = cr.query(CallLog.Calls.CONTENT_URI, null, null, null,
-                    CallLog.Calls.DATE + " DESC LIMIT 500");
+                    CallLog.Calls.DATE + " DESC");
 
             if (cursor != null) {
                 int currentCount = cursor.getCount();
