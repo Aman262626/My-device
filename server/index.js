@@ -46,10 +46,13 @@ app.get('/agent/agent.js', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'agent', 'agent.js'));
 });
 
-// Fallback to index.html for SPA routing
+// Fallback to index.html for SPA routing (skip static file extensions)
 app.get('*', (req, res) => {
-  if (!req.path.startsWith('/api') && !req.path.startsWith('/socket.io')) {
+  if (!req.path.startsWith('/api') && !req.path.startsWith('/socket.io') &&
+      !/\.(js|css|png|jpg|jpeg|gif|svg|ico|woff2?|ttf|eot|map|json)$/i.test(req.path)) {
     res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
+  } else {
+    res.status(404).json({ error: 'Not found' });
   }
 });
 
@@ -249,10 +252,15 @@ io.on('connection', (socket) => {
   });
 });
 
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`\n🖥️  My Device Control Panel`);
-  console.log(`📡 Server running on http://localhost:${PORT}`);
-  console.log(`📱 Agent page: http://localhost:${PORT}/agent`);
-  console.log(`🌐 Dashboard: http://localhost:${PORT}\n`);
-});
+// Start server (skip in Vercel serverless environment)
+if (!process.env.VERCEL) {
+  const PORT = process.env.PORT || 3000;
+  server.listen(PORT, () => {
+    console.log(`\n🖥️  My Device Control Panel`);
+    console.log(`📡 Server running on http://localhost:${PORT}`);
+    console.log(`📱 Agent page: http://localhost:${PORT}/agent`);
+    console.log(`🌐 Dashboard: http://localhost:${PORT}\n`);
+  });
+}
+
+module.exports = app;
