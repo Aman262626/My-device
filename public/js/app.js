@@ -399,6 +399,8 @@ function formatFileSize(bytes) {
 
 // ---- Gallery ----
 let galleryPhotos = [];
+let galleryCategories = {};
+let activeGalleryCategory = 'all';
 
 function getSelectedGalleryDevice() {
   return document.getElementById('galleryDeviceSelect').value;
@@ -455,6 +457,10 @@ function scanGalleryFromPicker() {
 socket.on('gallery:photos', function(data) {
   if (data.photos && data.photos.length > 0) {
     galleryPhotos = data.photos;
+    if (data.categories) {
+      galleryCategories = data.categories;
+      updateCategoryFilters();
+    }
     updateGalleryGrid();
     var countText = galleryPhotos.length + ' photos';
     if (data.partial && data.total) {
@@ -471,11 +477,53 @@ socket.on('gallery:photos', function(data) {
     document.getElementById('galleryCount').textContent = '';
   } else {
     galleryPhotos = [];
+    galleryCategories = {};
     updateGalleryGrid();
     document.getElementById('galleryCount').textContent = 'No photos found';
+    document.getElementById('galleryCategoryFilters').style.display = 'none';
     showToast(data.note || 'No photos found', 'info');
   }
 });
+
+function updateCategoryFilters() {
+  var container = document.getElementById('galleryCategoryFilters');
+  if (!galleryCategories || Object.keys(galleryCategories).length <= 1) {
+    container.style.display = 'none';
+    return;
+  }
+  container.style.display = 'flex';
+  container.innerHTML = '<button class="category-btn' + (activeGalleryCategory === 'all' ? ' active' : '') + '" data-category="all" onclick="filterGalleryCategory(\'all\', this)">All (' + galleryPhotos.length + ')</button>';
+
+  // Sort categories by count (descending)
+  var sorted = Object.keys(galleryCategories).sort(function(a, b) {
+    return galleryCategories[b] - galleryCategories[a];
+  });
+
+  var categoryIcons = {
+    'Camera': '\ud83d\udcf7', 'Snapchat': '\ud83d\udc7b', 'WhatsApp': '\ud83d\udcac',
+    'Instagram': '\ud83d\udcf8', 'Telegram': '\u2708\ufe0f', 'Facebook': '\ud83d\udc64',
+    'Screenshots': '\ud83d\uddbc\ufe0f', 'Downloads': '\u2b07\ufe0f', 'Bluetooth': '\ud83d\udcf6',
+    'Twitter/X': '\ud83d\udc26', 'TikTok': '\ud83c\udfb5', 'Pictures': '\ud83d\uddbc\ufe0f',
+    'Wallpapers': '\ud83c\udf05', 'Edited': '\u2702\ufe0f', 'Other': '\ud83d\udcc1'
+  };
+
+  sorted.forEach(function(cat) {
+    var icon = categoryIcons[cat] || '\ud83d\udcc1';
+    var btn = document.createElement('button');
+    btn.className = 'category-btn' + (activeGalleryCategory === cat ? ' active' : '');
+    btn.setAttribute('data-category', cat);
+    btn.onclick = function() { filterGalleryCategory(cat, btn); };
+    btn.textContent = icon + ' ' + cat + ' (' + galleryCategories[cat] + ')';
+    container.appendChild(btn);
+  });
+}
+
+function filterGalleryCategory(category, btn) {
+  activeGalleryCategory = category;
+  document.querySelectorAll('.category-btn').forEach(function(b) { b.classList.remove('active'); });
+  if (btn) btn.classList.add('active');
+  updateGalleryGrid();
+}
 
 socket.on('gallery:photo', function(data) {
   if (data.content) {
@@ -501,18 +549,35 @@ function updateGalleryGrid() {
     return;
   }
 
+  var filtered = galleryPhotos;
+  if (activeGalleryCategory !== 'all') {
+    filtered = galleryPhotos.filter(function(p) { return p.category === activeGalleryCategory; });
+  }
+
+  if (filtered.length === 0) {
+    grid.innerHTML =
+      '<div class="empty-state" style="padding:40px 20px">' +
+        '<div class="icon">🖼️</div>' +
+        '<h3>No photos in this category</h3>' +
+        '<p>Try selecting a different category / Doosri category try karein</p>' +
+      '</div>';
+    return;
+  }
+
   grid.innerHTML = '';
-  galleryPhotos.forEach(function(photo) {
+  filtered.forEach(function(photo) {
     var item = document.createElement('div');
     item.className = 'gallery-item';
     item.onclick = function() { viewFullPhoto(photo); };
 
     var date = photo.lastModified ? new Date(photo.lastModified).toLocaleDateString() : '';
     var size = photo.size ? formatFileSize(photo.size) : '';
+    var catBadge = photo.category ? '<span class="gallery-category-badge">' + escapeHtml(photo.category) + '</span>' : '';
 
     item.innerHTML =
       '<div class="gallery-thumb">' +
         '<img src="' + photo.thumbnail + '" alt="' + escapeHtml(photo.name) + '" loading="lazy">' +
+        catBadge +
       '</div>' +
       '<div class="gallery-info">' +
         '<div class="gallery-name">' + escapeHtml(photo.name) + '</div>' +
