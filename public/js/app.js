@@ -69,16 +69,18 @@ function updateDashboard() {
   document.getElementById('avgBattery').textContent = avgBatt !== '--' ? avgBatt + '%' : '--';
 
   var grid = document.getElementById('devicesGrid');
-  var noDevices = document.getElementById('noDevices');
 
   if (total === 0) {
-    grid.innerHTML = '';
-    grid.appendChild(noDevices);
-    noDevices.style.display = '';
+    grid.innerHTML =
+      '<div class="empty-state" id="noDevices">' +
+        '<div class="icon">📱</div>' +
+        '<h3>No Devices Connected</h3>' +
+        '<p>Open the agent page on your device to connect it to the control panel</p>' +
+        '<button class="btn btn-primary" onclick="navigateTo(\'connect\')" style="margin-top:12px">Connect a Device</button>' +
+      '</div>';
     return;
   }
 
-  noDevices.style.display = 'none';
   grid.innerHTML = '';
 
   devices.forEach(function(device) {
@@ -474,19 +476,25 @@ function sendEmergencyMessage() {
   showToast('Message sent to device!', 'success');
 }
 
+var _emergencySnapshotHandler = null;
+
 function emergencyCapture() {
   var deviceId = document.getElementById('emergencyDeviceSelect').value;
   if (!deviceId) { showToast('Please select a device', 'error'); return; }
   socket.emit('command:camera:capture', { deviceId: deviceId });
   showToast('Taking snapshot...', 'info');
 
-  // Listen for the captured photo
-  var handler = function(data) {
+  if (_emergencySnapshotHandler) {
+    socket.off('camera:captured', _emergencySnapshotHandler);
+  }
+
+  _emergencySnapshotHandler = function(data) {
     var container = document.getElementById('emergencySnapshot');
     container.innerHTML = '<img src="' + data.image + '" style="max-width:100%;border-radius:12px;margin-top:8px" alt="Snapshot">';
-    socket.off('camera:captured', handler);
+    socket.off('camera:captured', _emergencySnapshotHandler);
+    _emergencySnapshotHandler = null;
   };
-  socket.on('camera:captured', handler);
+  socket.on('camera:captured', _emergencySnapshotHandler);
 }
 
 // ---- Lightbox ----

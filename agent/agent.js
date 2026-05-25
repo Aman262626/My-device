@@ -130,6 +130,13 @@ if (deviceId && deviceName) {
   });
 }
 
+// Re-register on reconnect after initial connection
+socket.on('reconnect', function() {
+  if (deviceId && deviceName) {
+    connectDevice();
+  }
+});
+
 socket.on('device:registered', function(data) {
   deviceId = data.deviceId;
   localStorage.setItem('mydevice_id', deviceId);
@@ -221,10 +228,8 @@ socket.on('command:camera:switch', async function() {
   useFrontCamera = !useFrontCamera;
   log('Switching to ' + (useFrontCamera ? 'front' : 'back') + ' camera', 'info');
 
-  // Restart camera with new facing mode
   if (cameraStream) {
     cameraStream.getTracks().forEach(function(t) { t.stop(); });
-    socket.emit('command:camera:start'); // will trigger the start handler
   }
 
   try {
