@@ -168,6 +168,11 @@ function updateDeviceSelects() {
 }
 
 // ---- Camera ----
+var liveAudioContext = null;
+var liveAudioMuted = false;
+var audioBufferQueue = [];
+var isPlayingAudio = false;
+
 function getSelectedCameraDevice() {
   return document.getElementById('cameraDeviceSelect').value;
 }
@@ -215,6 +220,73 @@ socket.on('camera:frame', function(data) {
   feed.style.display = '';
   placeholder.style.display = 'none';
 });
+
+// ---- Live Audio Playback ----
+socket.on('camera:audio', function(data) {
+  if (liveAudioMuted || !data.audio) return;
+
+  try {
+    if (!liveAudioContext) {
+      liveAudioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: data.sampleRate || 16000 });
+    }
+
+    var binaryStr = atob(data.audio);
+    var bytes = new Uint8Array(binaryStr.length);
+    for (var i = 0; i < binaryStr.length; i++) {
+      bytes[i] = binaryStr.charCodeAt(i);
+    }
+    var int16 = new Int16Array(bytes.buffer);
+    var float32 = new Float32Array(int16.length);
+    for (var j = 0; j < int16.length; j++) {
+      float32[j] = int16[j] / 32768;
+    }
+
+    var audioBuffer = liveAudioContext.createBuffer(1, float32.length, data.sampleRate || 16000);
+    audioBuffer.getChannelData(0).set(float32);
+
+    audioBufferQueue.push(audioBuffer);
+    if (!isPlayingAudio) {
+      playNextAudioBuffer();
+    }
+  } catch (e) {
+    // Skip audio errors silently
+  }
+});
+
+function playNextAudioBuffer() {
+  if (audioBufferQueue.length === 0 || !liveAudioContext) {
+    isPlayingAudio = false;
+    return;
+  }
+  isPlayingAudio = true;
+  var buffer = audioBufferQueue.shift();
+  // Drop old buffers to stay real-time
+  if (audioBufferQueue.length > 3) {
+    audioBufferQueue = audioBufferQueue.slice(-2);
+  }
+  var source = liveAudioContext.createBufferSource();
+  source.buffer = buffer;
+  source.connect(liveAudioContext.destination);
+  source.onended = playNextAudioBuffer;
+  source.start();
+}
+
+function toggleLiveAudio() {
+  liveAudioMuted = !liveAudioMuted;
+  var btn = document.getElementById('btnMuteAudio');
+  if (btn) {
+    btn.innerHTML = liveAudioMuted ? '<span>🔇</span> Unmute' : '<span>🔊</span> Mute';
+  }
+  if (liveAudioMuted) {
+    audioBufferQueue = [];
+    if (liveAudioContext) {
+      liveAudioContext.close().catch(function() {});
+      liveAudioContext = null;
+    }
+    isPlayingAudio = false;
+  }
+  showToast(liveAudioMuted ? 'Audio muted' : 'Audio enabled', 'info');
+}
 
 socket.on('camera:captured', function(data) {
   capturedPhotos.unshift(data.image);

