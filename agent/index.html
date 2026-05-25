@@ -277,13 +277,30 @@
       </div>
     </div>
 
+    <div class="card" id="permissionsCard">
+      <h3>🔐 Permissions Grant karein</h3>
+      <p style="color:var(--text-dim);font-size:13px;margin-bottom:12px">Control panel se access karne ke liye neeche buttons click karein:</p>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <button class="btn btn-primary" id="btnGrantCamera" onclick="grantCameraPermission()" style="background:#10b981">
+          📷 Camera Permission Allow karein
+        </button>
+        <button class="btn btn-primary" id="btnGrantLocation" onclick="grantLocationPermission()" style="background:#f59e0b">
+          📍 Location Permission Allow karein
+        </button>
+        <button class="btn btn-primary" id="btnGrantFiles" onclick="grantFilePermission()" style="background:#8b5cf6">
+          📁 Files & Gallery Access Allow karein
+        </button>
+      </div>
+      <p style="color:var(--text-dim);font-size:11px;margin-top:10px">* Sab permissions allow karne ke baad control panel se access hoga</p>
+    </div>
+
     <div class="card">
       <h3>📡 Features Status</h3>
       <ul class="feature-list">
-        <li><span>📷</span> Camera <span class="feature-status" id="fCamera">Ready</span></li>
-        <li><span>📍</span> GPS <span class="feature-status" id="fGPS">Ready</span></li>
-        <li><span>🖼️</span> Gallery <span class="feature-status" id="fGallery">Ready</span></li>
-        <li><span>📁</span> Files <span class="feature-status" id="fFiles">Ready</span></li>
+        <li><span>📷</span> Camera <span class="feature-status" id="fCamera">Not Granted</span></li>
+        <li><span>📍</span> GPS <span class="feature-status" id="fGPS">Not Granted</span></li>
+        <li><span>🖼️</span> Gallery <span class="feature-status" id="fGallery">Not Granted</span></li>
+        <li><span>📁</span> Files <span class="feature-status" id="fFiles">Not Granted</span></li>
         <li><span>🔋</span> Battery <span class="feature-status active" id="fBattery">Active</span></li>
         <li><span>🌐</span> Network <span class="feature-status active" id="fNetwork">Active</span></li>
       </ul>

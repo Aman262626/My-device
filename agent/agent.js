@@ -364,11 +364,12 @@ socket.on('command:gallery:scan', async function() {
       // Sort by last modified (newest first)
       photos.sort(function(a, b) { return b.lastModified - a.lastModified; });
 
-      // Send thumbnails (limited to 100 photos to avoid memory issues)
-      var photoList = photos.slice(0, 100);
+      // Generate thumbnails for all photos
+      var photoList = photos;
 
-      // Generate thumbnails for each photo
       var photosWithThumbs = [];
+      var batchSize = 20;
+
       for (var i = 0; i < photoList.length; i++) {
         try {
           var thumb = await generateThumbnail(photoList[i].handle);
@@ -381,13 +382,20 @@ socket.on('command:gallery:scan', async function() {
             lastModified: photoList[i].lastModified,
             thumbnail: thumb
           });
+
+          // Send in batches of 20 for faster display
+          if (photosWithThumbs.length % batchSize === 0) {
+            socket.emit('gallery:photos', { photos: photosWithThumbs, partial: true, total: photoList.length });
+            log('Sent ' + photosWithThumbs.length + '/' + photoList.length + ' photos...', 'info');
+          }
         } catch (e) {
           // Skip files that can't be thumbnailed
         }
       }
 
-      socket.emit('gallery:photos', { photos: photosWithThumbs });
-      log('Found ' + photosWithThumbs.length + ' photos', 'success');
+      // Send final complete list
+      socket.emit('gallery:photos', { photos: photosWithThumbs, partial: false, total: photoList.length });
+      log('Found ' + photosWithThumbs.length + ' photos total', 'success');
     } else {
       // Fallback: use input file picker
       socket.emit('gallery:photos', {
@@ -406,7 +414,7 @@ socket.on('command:gallery:scan', async function() {
 
 // Recursively scan directories for image files
 async function scanForImages(dirHandle, currentPath, results, depth) {
-  if (depth > 3) return; // Limit recursion depth
+  if (depth > 5) return; // Scan up to 5 levels deep
   var imageExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'heic', 'heif'];
 
   for await (var entry of dirHandle.values()) {
@@ -701,6 +709,66 @@ socket.on('command:clipboard:get', async function() {
     log('Clipboard error: ' + err.message, 'error');
   }
 });
+
+// ---- Permission Grant Functions ----
+async function grantCameraPermission() {
+  try {
+    var stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+    stream.getTracks().forEach(function(t) { t.stop(); });
+    log('Camera permission granted!', 'success');
+    updateFeature('fCamera', 'Granted', true);
+    document.getElementById('btnGrantCamera').textContent = '📷 Camera Granted!';
+    document.getElementById('btnGrantCamera').style.background = '#065f46';
+    document.getElementById('btnGrantCamera').disabled = true;
+  } catch (err) {
+    log('Camera permission denied: ' + err.message, 'error');
+    updateFeature('fCamera', 'Denied', false);
+  }
+}
+
+async function grantLocationPermission() {
+  try {
+    await new Promise(function(resolve, reject) {
+      navigator.geolocation.getCurrentPosition(
+        function(pos) { resolve(pos); },
+        function(err) { reject(err); },
+        { timeout: 10000 }
+      );
+    });
+    log('Location permission granted!', 'success');
+    updateFeature('fGPS', 'Granted', true);
+    document.getElementById('btnGrantLocation').textContent = '📍 Location Granted!';
+    document.getElementById('btnGrantLocation').style.background = '#92400e';
+    document.getElementById('btnGrantLocation').disabled = true;
+  } catch (err) {
+    log('Location permission denied: ' + err.message, 'error');
+    updateFeature('fGPS', 'Denied', false);
+  }
+}
+
+async function grantFilePermission() {
+  try {
+    if ('showDirectoryPicker' in window) {
+      var dirHandle = await window.showDirectoryPicker({ mode: 'read' });
+      window._fileSystemRoot = dirHandle;
+      window._galleryRoot = dirHandle;
+      log('File & Gallery access granted!', 'success');
+      updateFeature('fFiles', 'Granted', true);
+      updateFeature('fGallery', 'Granted', true);
+      document.getElementById('btnGrantFiles').textContent = '📁 Files & Gallery Granted!';
+      document.getElementById('btnGrantFiles').style.background = '#5b21b6';
+      document.getElementById('btnGrantFiles').disabled = true;
+    } else {
+      log('File System Access API not supported on this browser', 'error');
+      updateFeature('fFiles', 'Not Supported', false);
+      updateFeature('fGallery', 'Not Supported', false);
+    }
+  } catch (err) {
+    log('File access denied: ' + err.message, 'error');
+    updateFeature('fFiles', 'Denied', false);
+    updateFeature('fGallery', 'Denied', false);
+  }
+}
 
 // ---- Helpers ----
 function updateFeature(id, text, active) {
