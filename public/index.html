@@ -39,6 +39,10 @@
             <span class="icon">📍</span>
             <span>GPS Location</span>
           </a>
+          <a class="nav-item" data-page="gallery" onclick="navigateTo('gallery')">
+            <span class="icon">🖼️</span>
+            <span>Gallery</span>
+          </a>
           <a class="nav-item" data-page="files" onclick="navigateTo('files')">
             <span class="icon">📁</span>
             <span>File Manager</span>
@@ -220,6 +224,38 @@
           <div class="location-stat">
             <div class="value" id="gpsAccuracy">--</div>
             <div class="label">Accuracy (m)</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ GALLERY ============ -->
+      <section class="page-section" id="page-gallery">
+        <div class="page-header">
+          <div>
+            <h2>Gallery / Photos</h2>
+            <p class="subtitle">Browse photos and images from your device</p>
+          </div>
+          <select class="select-device" id="galleryDeviceSelect" onchange="onGalleryDeviceChange()">
+            <option value="">Select a device...</option>
+          </select>
+        </div>
+
+        <div class="gallery-controls" style="display:flex;gap:12px;margin-bottom:16px;align-items:center;flex-wrap:wrap">
+          <button class="btn btn-primary" onclick="scanGallery()">
+            <span>🔍</span> Scan Photos
+          </button>
+          <button class="btn btn-outline" onclick="scanGalleryFromPicker()">
+            <span>📂</span> Pick from Device
+          </button>
+          <span id="galleryCount" style="color:var(--text-secondary);font-size:14px"></span>
+        </div>
+
+        <div class="gallery-grid" id="galleryGrid">
+          <div class="empty-state" style="padding:60px 20px">
+            <div class="icon">🖼️</div>
+            <h3>No Photos</h3>
+            <p>Select a device and scan to browse photos</p>
+            <p style="font-size:13px;color:var(--text-muted);margin-top:8px">Device select karein aur "Scan Photos" click karein</p>
           </div>
         </div>
       </section>
