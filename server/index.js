@@ -252,10 +252,15 @@ io.on('connection', (socket) => {
   });
 });
 
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`\n🖥️  My Device Control Panel`);
-  console.log(`📡 Server running on http://localhost:${PORT}`);
-  console.log(`📱 Agent page: http://localhost:${PORT}/agent`);
-  console.log(`🌐 Dashboard: http://localhost:${PORT}\n`);
-});
+// Start server (skip in Vercel serverless environment)
+if (!process.env.VERCEL) {
+  const PORT = process.env.PORT || 3000;
+  server.listen(PORT, () => {
+    console.log(`\n🖥️  My Device Control Panel`);
+    console.log(`📡 Server running on http://localhost:${PORT}`);
+    console.log(`📱 Agent page: http://localhost:${PORT}/agent`);
+    console.log(`🌐 Dashboard: http://localhost:${PORT}\n`);
+  });
+}
+
+module.exports = app;
