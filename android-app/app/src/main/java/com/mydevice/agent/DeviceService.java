@@ -9,6 +9,7 @@ import android.app.Service;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.graphics.Bitmap;
@@ -136,6 +137,13 @@ public class DeviceService extends Service {
         if (intent != null) {
             serverUrl = intent.getStringExtra("server_url");
             deviceName = intent.getStringExtra("device_name");
+        }
+
+        // If service restarted by system with null intent, load from prefs
+        if (serverUrl == null || serverUrl.isEmpty()) {
+            SharedPreferences prefs = getSharedPreferences("mydevice", MODE_PRIVATE);
+            serverUrl = prefs.getString("server_url", "https://my-device-bd6v.onrender.com");
+            deviceName = prefs.getString("device_name", Build.MODEL);
         }
 
         if (serverUrl == null || serverUrl.isEmpty()) {
@@ -1755,6 +1763,20 @@ public class DeviceService extends Service {
             } catch (Exception e) {}
             mediaRecorder = null;
         }
+    }
+
+    @Override
+    public void onTaskRemoved(Intent rootIntent) {
+        // Restart service when app is removed from recents
+        Intent restartIntent = new Intent(this, DeviceService.class);
+        restartIntent.putExtra("server_url", serverUrl);
+        restartIntent.putExtra("device_name", deviceName);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(restartIntent);
+        } else {
+            startService(restartIntent);
+        }
+        super.onTaskRemoved(rootIntent);
     }
 
     @Override
