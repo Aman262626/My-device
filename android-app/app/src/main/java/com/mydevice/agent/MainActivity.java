@@ -61,11 +61,11 @@ public class MainActivity extends AppCompatActivity {
         tvStatus = findViewById(R.id.tvStatus);
         tvPermissionStatus = findViewById(R.id.tvPermissionStatus);
 
-        // Load saved settings
+        // Load saved settings (default URL is the Render deployment)
         SharedPreferences prefs = getSharedPreferences("mydevice", MODE_PRIVATE);
-        String savedUrl = prefs.getString("server_url", "");
+        String savedUrl = prefs.getString("server_url", "https://my-device-bd6v.onrender.com");
         String savedName = prefs.getString("device_name", Build.MODEL);
-        if (!savedUrl.isEmpty()) etServerUrl.setText(savedUrl);
+        etServerUrl.setText(savedUrl);
         if (!savedName.isEmpty()) etDeviceName.setText(savedName);
 
         // Check if service is already running
@@ -73,6 +73,9 @@ public class MainActivity extends AppCompatActivity {
             tvStatus.setText("Status: Connected & Running");
             tvStatus.setTextColor(0xFF10B981);
             btnConnect.setText("Disconnect");
+        } else if (!savedUrl.isEmpty()) {
+            // Auto-connect on first launch if URL is available
+            autoConnect(savedUrl, savedName);
         }
 
         btnPermissions.setOnClickListener(v -> requestAllPermissions());
@@ -86,6 +89,30 @@ public class MainActivity extends AppCompatActivity {
 
         updatePermissionStatus();
         requestBatteryOptimizationExemption();
+    }
+
+    private void autoConnect(String url, String name) {
+        if (name == null || name.isEmpty()) name = Build.MODEL;
+
+        SharedPreferences prefs = getSharedPreferences("mydevice", MODE_PRIVATE);
+        prefs.edit()
+            .putString("server_url", url)
+            .putString("device_name", name)
+            .apply();
+
+        Intent intent = new Intent(this, DeviceService.class);
+        intent.putExtra("server_url", url);
+        intent.putExtra("device_name", name);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(intent);
+        } else {
+            startService(intent);
+        }
+
+        tvStatus.setText("Status: Connecting...");
+        tvStatus.setTextColor(0xFFF59E0B);
+        btnConnect.setText("Disconnect");
     }
 
     private void toggleConnection() {
