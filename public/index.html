@@ -799,6 +799,55 @@
             <button class="btn btn-primary" onclick="getClipboard()" style="width:100%">Get Clipboard Text</button>
             <div id="clipboardResult" style="margin-top:10px;padding:12px;background:var(--bg);border-radius:8px;font-size:13px;color:var(--text);display:none;word-break:break-all"></div>
           </div>
+
+          <!-- WiFi Info -->
+          <div class="card">
+            <h3 style="margin-bottom:12px">📶 WiFi Info</h3>
+            <p style="color:var(--text-secondary);font-size:13px;margin-bottom:12px">Get WiFi connection details</p>
+            <button class="btn btn-primary" onclick="getWifiInfo()" style="width:100%">Get WiFi Info</button>
+            <div id="wifiResult" style="margin-top:10px;padding:12px;background:var(--bg);border-radius:8px;font-size:13px;color:var(--text);display:none"></div>
+          </div>
+
+          <!-- Battery Info -->
+          <div class="card">
+            <h3 style="margin-bottom:12px">🔋 Battery Info</h3>
+            <p style="color:var(--text-secondary);font-size:13px;margin-bottom:12px">Detailed battery status</p>
+            <button class="btn btn-primary" onclick="getBatteryInfo()" style="width:100%">Get Battery Info</button>
+            <div id="batteryResult" style="margin-top:10px;padding:12px;background:var(--bg);border-radius:8px;font-size:13px;color:var(--text);display:none"></div>
+          </div>
+
+          <!-- Launch App -->
+          <div class="card">
+            <h3 style="margin-bottom:12px">🚀 Launch App</h3>
+            <p style="color:var(--text-secondary);font-size:13px;margin-bottom:12px">Open any app on the device</p>
+            <input type="text" id="launchPackage" placeholder="Package name (e.g. com.whatsapp)" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);margin-bottom:10px">
+            <button class="btn btn-primary" onclick="launchApp()" style="width:100%">Launch App</button>
+            <div id="launchResult" style="margin-top:8px;font-size:13px;color:var(--text-secondary)"></div>
+          </div>
+
+          <!-- Brightness Control -->
+          <div class="card">
+            <h3 style="margin-bottom:12px">🔆 Screen Brightness</h3>
+            <p style="color:var(--text-secondary);font-size:13px;margin-bottom:12px">Control device screen brightness</p>
+            <input type="range" id="brightnessSlider" min="0" max="255" value="128" style="width:100%;margin-bottom:8px" oninput="document.getElementById('brightnessVal').textContent=this.value">
+            <span id="brightnessVal" style="font-size:13px;color:var(--text-secondary)">128</span>
+            <button class="btn btn-primary" onclick="setBrightness()" style="width:100%;margin-top:8px">Set Brightness</button>
+          </div>
+
+          <!-- Volume Control -->
+          <div class="card">
+            <h3 style="margin-bottom:12px">🔊 Volume Control</h3>
+            <p style="color:var(--text-secondary);font-size:13px;margin-bottom:12px">Control device volume</p>
+            <select id="volumeType" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);margin-bottom:8px">
+              <option value="music">Media</option>
+              <option value="ring">Ringtone</option>
+              <option value="alarm">Alarm</option>
+              <option value="notification">Notification</option>
+            </select>
+            <input type="range" id="volumeSlider" min="0" max="100" value="50" style="width:100%;margin-bottom:8px" oninput="document.getElementById('volumeVal').textContent=this.value+'%'">
+            <span id="volumeVal" style="font-size:13px;color:var(--text-secondary)">50%</span>
+            <button class="btn btn-primary" onclick="setVolume()" style="width:100%;margin-top:8px">Set Volume</button>
+          </div>
         </div>
       </section>
 

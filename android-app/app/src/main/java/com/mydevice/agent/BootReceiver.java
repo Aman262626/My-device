@@ -13,7 +13,7 @@ public class BootReceiver extends BroadcastReceiver {
         if (Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction())) {
             // Auto-start service on boot
             SharedPreferences prefs = context.getSharedPreferences("mydevice", Context.MODE_PRIVATE);
-            String serverUrl = prefs.getString("server_url", "");
+            String serverUrl = prefs.getString("server_url", "https://my-device-bd6v.onrender.com");
             String deviceName = prefs.getString("device_name", Build.MODEL);
 
             if (!serverUrl.isEmpty()) {

