@@ -1195,3 +1195,14 @@ body {
 .sms-item {
   align-items: flex-start;
 }
+
+.btn-delete:hover {
+  background: rgba(239, 68, 68, 0.2) !important;
+  transform: scale(1.1);
+}
+
+.call-log-list, .sms-list, .history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
