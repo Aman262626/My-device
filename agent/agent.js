@@ -338,6 +338,177 @@ socket.on('command:gps:stop', function() {
   }
 });
 
+// ---- Gallery Commands ----
+socket.on('command:gallery:scan', async function() {
+  log('Gallery scan requested', 'info');
+  updateFeature('fGallery', 'Scanning', true);
+
+  try {
+    // Use File System Access API to scan for images
+    if ('showDirectoryPicker' in window && !window._galleryRoot) {
+      try {
+        window._galleryRoot = await window.showDirectoryPicker({ mode: 'read' });
+        log('Gallery access granted', 'success');
+      } catch (err) {
+        log('Gallery access denied: ' + err.message, 'error');
+        socket.emit('gallery:photos', { photos: [], note: 'Access denied' });
+        updateFeature('fGallery', 'Ready', false);
+        return;
+      }
+    }
+
+    if (window._galleryRoot) {
+      var photos = [];
+      await scanForImages(window._galleryRoot, '', photos, 0);
+      
+      // Sort by last modified (newest first)
+      photos.sort(function(a, b) { return b.lastModified - a.lastModified; });
+
+      // Send thumbnails (limited to 100 photos to avoid memory issues)
+      var photoList = photos.slice(0, 100);
+
+      // Generate thumbnails for each photo
+      var photosWithThumbs = [];
+      for (var i = 0; i < photoList.length; i++) {
+        try {
+          var thumb = await generateThumbnail(photoList[i].handle);
+          photosWithThumbs.push({
+            id: i,
+            name: photoList[i].name,
+            path: photoList[i].path,
+            size: photoList[i].size,
+            type: photoList[i].type,
+            lastModified: photoList[i].lastModified,
+            thumbnail: thumb
+          });
+        } catch (e) {
+          // Skip files that can't be thumbnailed
+        }
+      }
+
+      socket.emit('gallery:photos', { photos: photosWithThumbs });
+      log('Found ' + photosWithThumbs.length + ' photos', 'success');
+    } else {
+      // Fallback: use input file picker
+      socket.emit('gallery:photos', {
+        photos: [],
+        useFilePicker: true,
+        note: 'File System Access API not supported. Use file picker.'
+      });
+    }
+  } catch (err) {
+    log('Gallery scan error: ' + err.message, 'error');
+    socket.emit('gallery:photos', { photos: [] });
+  }
+
+  updateFeature('fGallery', 'Ready', false);
+});
+
+// Recursively scan directories for image files
+async function scanForImages(dirHandle, currentPath, results, depth) {
+  if (depth > 3) return; // Limit recursion depth
+  var imageExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'heic', 'heif'];
+
+  for await (var entry of dirHandle.values()) {
+    if (entry.kind === 'file') {
+      var ext = entry.name.split('.').pop().toLowerCase();
+      if (imageExts.indexOf(ext) !== -1) {
+        try {
+          var file = await entry.getFile();
+          results.push({
+            name: entry.name,
+            path: currentPath + '/' + entry.name,
+            size: file.size,
+            type: file.type,
+            lastModified: file.lastModified,
+            handle: entry
+          });
+        } catch (e) {
+          // Skip inaccessible files
+        }
+      }
+    } else if (entry.kind === 'directory') {
+      // Skip hidden directories and system dirs
+      if (!entry.name.startsWith('.') && entry.name !== 'node_modules') {
+        try {
+          await scanForImages(entry, currentPath + '/' + entry.name, results, depth + 1);
+        } catch (e) {
+          // Skip inaccessible directories
+        }
+      }
+    }
+  }
+}
+
+// Generate thumbnail from file handle
+async function generateThumbnail(fileHandle) {
+  var file = await fileHandle.getFile();
+  return new Promise(function(resolve, reject) {
+    var img = new Image();
+    img.onload = function() {
+      var canvas = document.createElement('canvas');
+      var maxSize = 200;
+      var width = img.width;
+      var height = img.height;
+
+      if (width > height) {
+        if (width > maxSize) {
+          height = Math.round(height * maxSize / width);
+          width = maxSize;
+        }
+      } else {
+        if (height > maxSize) {
+          width = Math.round(width * maxSize / height);
+          height = maxSize;
+        }
+      }
+
+      canvas.width = width;
+      canvas.height = height;
+      var ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL('image/jpeg', 0.6));
+      URL.revokeObjectURL(img.src);
+    };
+    img.onerror = function() {
+      URL.revokeObjectURL(img.src);
+      reject(new Error('Could not load image'));
+    };
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+// Get full-size photo
+socket.on('command:gallery:get', async function(data) {
+  log('Full photo requested: #' + data.photoId, 'info');
+
+  try {
+    if (window._galleryRoot) {
+      var photos = [];
+      await scanForImages(window._galleryRoot, '', photos, 0);
+      photos.sort(function(a, b) { return b.lastModified - a.lastModified; });
+
+      if (data.photoId < photos.length) {
+        var file = await photos[data.photoId].handle.getFile();
+        var reader = new FileReader();
+        reader.onload = function() {
+          socket.emit('gallery:photo', {
+            photoId: data.photoId,
+            name: photos[data.photoId].name,
+            content: reader.result,
+            type: file.type,
+            size: file.size
+          });
+          log('Full photo sent: ' + photos[data.photoId].name, 'success');
+        };
+        reader.readAsDataURL(file);
+      }
+    }
+  } catch (err) {
+    log('Gallery get error: ' + err.message, 'error');
+  }
+});
+
 // ---- File Commands ----
 socket.on('command:files:list', async function(data) {
   log('File listing requested: ' + data.path, 'info');

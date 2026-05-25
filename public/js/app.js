@@ -121,8 +121,8 @@ function showDeviceActions(deviceId) {
 }
 
 function updateDeviceSelects() {
-  var selects = ['cameraDeviceSelect', 'gpsDeviceSelect', 'filesDeviceSelect',
-                 'infoDeviceSelect', 'emergencyDeviceSelect'];
+  var selects = ['cameraDeviceSelect', 'gpsDeviceSelect', 'galleryDeviceSelect',
+                 'filesDeviceSelect', 'infoDeviceSelect', 'emergencyDeviceSelect'];
 
   selects.forEach(function(selId) {
     var sel = document.getElementById(selId);
@@ -392,6 +392,158 @@ function formatFileSize(bytes) {
   var sizes = ['B', 'KB', 'MB', 'GB'];
   var i = Math.floor(Math.log(bytes) / Math.log(1024));
   return (bytes / Math.pow(1024, i)).toFixed(1) + ' ' + sizes[i];
+}
+
+// ---- Gallery ----
+let galleryPhotos = [];
+
+function getSelectedGalleryDevice() {
+  return document.getElementById('galleryDeviceSelect').value;
+}
+
+function onGalleryDeviceChange() {
+  galleryPhotos = [];
+  updateGalleryGrid();
+}
+
+function scanGallery() {
+  var deviceId = getSelectedGalleryDevice();
+  if (!deviceId) { showToast('Please select a device first', 'error'); return; }
+  socket.emit('command:gallery:scan', { deviceId: deviceId });
+  showToast('Scanning for photos...', 'info');
+  document.getElementById('galleryCount').textContent = 'Scanning...';
+}
+
+function scanGalleryFromPicker() {
+  // Fallback for devices without File System Access API
+  var input = document.createElement('input');
+  input.type = 'file';
+  input.multiple = true;
+  input.accept = 'image/*';
+  input.onchange = function() {
+    var files = Array.from(input.files);
+    galleryPhotos = [];
+    var loaded = 0;
+
+    files.forEach(function(file, idx) {
+      var reader = new FileReader();
+      reader.onload = function() {
+        galleryPhotos.push({
+          id: idx,
+          name: file.name,
+          size: file.size,
+          type: file.type,
+          lastModified: file.lastModified,
+          thumbnail: reader.result
+        });
+        loaded++;
+        if (loaded === files.length) {
+          updateGalleryGrid();
+          document.getElementById('galleryCount').textContent = galleryPhotos.length + ' photos found';
+          showToast(galleryPhotos.length + ' photos loaded', 'success');
+        }
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+  input.click();
+}
+
+socket.on('gallery:photos', function(data) {
+  if (data.photos && data.photos.length > 0) {
+    galleryPhotos = data.photos;
+    updateGalleryGrid();
+    document.getElementById('galleryCount').textContent = galleryPhotos.length + ' photos found';
+    showToast(galleryPhotos.length + ' photos found!', 'success');
+  } else if (data.useFilePicker) {
+    showToast('Use "Pick from Device" button instead', 'info');
+    document.getElementById('galleryCount').textContent = '';
+  } else {
+    galleryPhotos = [];
+    updateGalleryGrid();
+    document.getElementById('galleryCount').textContent = 'No photos found';
+    showToast(data.note || 'No photos found', 'info');
+  }
+});
+
+socket.on('gallery:photo', function(data) {
+  if (data.content) {
+    openLightbox(data.content);
+    // Also allow download
+    var a = document.createElement('a');
+    a.href = data.content;
+    a.download = data.name || 'photo.jpg';
+    // Don't auto-download, just show in lightbox
+  }
+});
+
+function updateGalleryGrid() {
+  var grid = document.getElementById('galleryGrid');
+  if (galleryPhotos.length === 0) {
+    grid.innerHTML =
+      '<div class="empty-state" style="padding:60px 20px">' +
+        '<div class="icon">🖼️</div>' +
+        '<h3>No Photos</h3>' +
+        '<p>Select a device and scan to browse photos</p>' +
+        '<p style="font-size:13px;color:var(--text-muted);margin-top:8px">Device select karein aur "Scan Photos" click karein</p>' +
+      '</div>';
+    return;
+  }
+
+  grid.innerHTML = '';
+  galleryPhotos.forEach(function(photo) {
+    var item = document.createElement('div');
+    item.className = 'gallery-item';
+    item.onclick = function() { viewFullPhoto(photo); };
+
+    var date = photo.lastModified ? new Date(photo.lastModified).toLocaleDateString() : '';
+    var size = photo.size ? formatFileSize(photo.size) : '';
+
+    item.innerHTML =
+      '<div class="gallery-thumb">' +
+        '<img src="' + photo.thumbnail + '" alt="' + escapeHtml(photo.name) + '" loading="lazy">' +
+      '</div>' +
+      '<div class="gallery-info">' +
+        '<div class="gallery-name">' + escapeHtml(photo.name) + '</div>' +
+        '<div class="gallery-meta">' + size + (date ? ' | ' + date : '') + '</div>' +
+      '</div>' +
+      '<div class="gallery-actions">' +
+        '<button class="btn-icon" title="View Full Size" onclick="event.stopPropagation(); viewFullPhoto(' + JSON.stringify(photo).replace(/"/g, '&quot;') + ')">🔍</button>' +
+        '<button class="btn-icon" title="Download" onclick="event.stopPropagation(); downloadGalleryPhoto(' + photo.id + ', \'' + escapeHtml(photo.name) + '\')">⬇️</button>' +
+      '</div>';
+    grid.appendChild(item);
+  });
+}
+
+function viewFullPhoto(photo) {
+  if (photo.thumbnail) {
+    // Show thumbnail immediately, then request full size
+    openLightbox(photo.thumbnail);
+  }
+  var deviceId = getSelectedGalleryDevice();
+  if (deviceId && photo.id !== undefined) {
+    socket.emit('command:gallery:get', { deviceId: deviceId, photoId: photo.id });
+  }
+}
+
+function downloadGalleryPhoto(photoId, fileName) {
+  var deviceId = getSelectedGalleryDevice();
+  if (!deviceId) return;
+
+  // Request full-size photo for download
+  var handler = function(data) {
+    if (data.photoId === photoId && data.content) {
+      var a = document.createElement('a');
+      a.href = data.content;
+      a.download = fileName || 'photo.jpg';
+      a.click();
+      showToast('Downloaded: ' + fileName, 'success');
+      socket.off('gallery:photo', handler);
+    }
+  };
+  socket.on('gallery:photo', handler);
+  socket.emit('command:gallery:get', { deviceId: deviceId, photoId: photoId });
+  showToast('Downloading...', 'info');
 }
 
 // ---- Device Info ----
